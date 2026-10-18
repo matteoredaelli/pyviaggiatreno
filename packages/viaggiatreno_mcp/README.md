@@ -26,6 +26,80 @@ viaggiatreno-mcp
 python -m viaggiatreno_mcp
 ```
 
+Il server usa il trasporto **stdio**: viene avviato dal client MCP, non va
+lanciato a mano quando lo si configura in Claude/Kiro/ecc.
+
+## Configurazione nei client MCP
+
+Il modo consigliato è `uvx`, che scarica ed esegue il pacchetto in un ambiente
+isolato senza installazione manuale (richiede [uv](https://docs.astral.sh/uv/)).
+
+### Claude Desktop
+
+File di configurazione:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "viaggiatreno": {
+      "command": "uvx",
+      "args": ["viaggiatreno-mcp"]
+    }
+  }
+}
+```
+
+### Kiro (e client con lo stesso formato: Cursor, Windsurf, VS Code MCP, ecc.)
+
+In `~/.kiro/settings/mcp.json` (globale) o `.kiro/settings/mcp.json` (per workspace):
+
+```json
+{
+  "mcpServers": {
+    "viaggiatreno": {
+      "command": "uvx",
+      "args": ["viaggiatreno-mcp"],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+### Alternativa senza uvx (pacchetto già installato con pip)
+
+Se hai fatto `pip install viaggiatreno-mcp`, punta direttamente al comando.
+Usa un percorso assoluto se il client non eredita il tuo `PATH`:
+
+```json
+{
+  "mcpServers": {
+    "viaggiatreno": {
+      "command": "viaggiatreno-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Oppure, per essere indipendenti dal `PATH`, via interprete Python:
+
+```json
+{
+  "mcpServers": {
+    "viaggiatreno": {
+      "command": "python",
+      "args": ["-m", "viaggiatreno_mcp"]
+    }
+  }
+}
+```
+
+Dopo aver salvato la configurazione, riavvia il client MCP.
+
 ## Dipendenze
 
 - [`viaggiatreno`](https://pypi.org/project/viaggiatreno/) — libreria client core

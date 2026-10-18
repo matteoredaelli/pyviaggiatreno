@@ -117,9 +117,44 @@ for train in trains:
 
 ### Using MCP Server
 
-1. Install: `pip install viaggiatreno-mcp`
-2. Start: `viaggiatreno-mcp`
-3. Configure your AI tool (Claude, pi, etc.) to connect to the MCP server
+Il modo consigliato è `uvx` (richiede [uv](https://docs.astral.sh/uv/)), che
+esegue il server in un ambiente isolato senza installarlo a mano.
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`
+su macOS, `%APPDATA%\Claude\claude_desktop_config.json` su Windows):
+
+```json
+{
+  "mcpServers": {
+    "viaggiatreno": {
+      "command": "uvx",
+      "args": ["viaggiatreno-mcp"]
+    }
+  }
+}
+```
+
+**Kiro** (`~/.kiro/settings/mcp.json`) e altri client con lo stesso formato
+(Cursor, Windsurf, VS Code MCP):
+
+```json
+{
+  "mcpServers": {
+    "viaggiatreno": {
+      "command": "uvx",
+      "args": ["viaggiatreno-mcp"],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+In alternativa, se hai già fatto `pip install viaggiatreno-mcp`, usa
+`"command": "viaggiatreno-mcp"` (o `"command": "python", "args": ["-m", "viaggiatreno_mcp"]`).
+Riavvia il client dopo aver salvato la configurazione.
+
+Dettagli completi in [packages/viaggiatreno_mcp/README.md](./packages/viaggiatreno_mcp/README.md).
 
 ---
 
