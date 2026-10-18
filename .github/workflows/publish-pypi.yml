@@ -32,15 +32,15 @@ jobs:
         with:
           fetch-depth: 0  # Full history for version detection
       
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      
-      - name: Install uv
-        uses: astral-sh/setup-uv@v2
-        with:
-          version: "0.12.x"
       
       - name: Build ${{ matrix.package }}
         run: |
@@ -65,15 +65,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      
-      - name: Install uv
-        uses: astral-sh/setup-uv@v2
-        with:
-          version: "0.12.x"
       
       - name: Download all artifacts
         uses: actions/download-artifact@v4
