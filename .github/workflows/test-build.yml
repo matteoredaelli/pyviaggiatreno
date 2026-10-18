@@ -98,7 +98,10 @@ jobs:
           fi
 
           echo "Installing: $WHEEL"
-          pip install "$WHEEL"
+          # --find-links lets pip resolve the internal dependency
+          # (viaggiatreno-mcp -> viaggiatreno) from the local dist/ wheels,
+          # since that version is not published to PyPI yet.
+          pip install --find-links dist "$WHEEL"
 
           # Test import
           if [ "${{ matrix.package }}" = "viaggiatreno" ]; then
