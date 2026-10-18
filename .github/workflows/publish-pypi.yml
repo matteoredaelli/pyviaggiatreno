@@ -14,24 +14,15 @@ on:
         type: string
 
 jobs:
-  build-and-publish:
-    name: Build and Publish Packages
+  build:
+    name: Build packages
     runs-on: ubuntu-latest
-    
-    # Optional: Add environment for approval before publishing
-    # environment: pypi
-    
-    strategy:
-      matrix:
-        package:
-          - packages/viaggiatreno
-          - packages/viaggiatreno_mcp
-    
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for version detection
-      
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
@@ -41,62 +32,68 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      
-      - name: Build ${{ matrix.package }}
+
+      - name: Build both packages
         run: |
-          cd ${{ matrix.package }}
-          uv build
-      
+          # uv build --package writes to the workspace-root dist/ directory
+          uv build --package viaggiatreno
+          uv build --package viaggiatreno-mcp
+          echo "Built artifacts:"
+          ls -lh dist/
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.package }}
-          path: ${{ matrix.package }}/dist/
+          name: dist
+          path: dist/
           retention-days: 1
 
   publish:
     name: Publish to PyPI
-    needs: build-and-publish
+    needs: build
     runs-on: ubuntu-latest
-    
-    # Optional: Add environment for approval
-    # environment: pypi
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      
-      - name: Download all artifacts
+    # Trusted Publishing: the environment name must match the one configured
+    # in the PyPI project's publisher settings.
+    environment: pypi
+
+    permissions:
+      # Required for PyPI Trusted Publishing (OIDC). No API token needed.
+      id-token: write
+
+    steps:
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
+          name: dist
           path: dist
-      
-      - name: Organize dist directory
+
+      - name: List what we're publishing
         run: |
-          # Flatten dist structure
-          find dist -name "*.whl" -o -name "*.tar.gz" | while read f; do
-            mv "$f" dist/ 2>/dev/null || true
-          done
-          
-          # List what we're publishing
           echo "Files to publish:"
           ls -lh dist/
-      
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        # No `password`: authentication is via OIDC Trusted Publishing.
         with:
-          password: ${{ secrets.PYPI_TOKEN }}
           packages-dir: dist
-      
+
+  release:
+    name: Create GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # Required to create a GitHub Release
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:

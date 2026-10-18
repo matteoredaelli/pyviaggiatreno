@@ -1,10 +1,6 @@
-[build-system]
-requires = ["uv_build>=0.12.23,<0.13.0"]
-build-backend = "uv_build"
-
 [project]
 name = "pyviaggiatreno"
-version = "0.1.0"
+version = "0.1.2"
 requires-python = ">=3.12"
 
 [tool.uv]
@@ -15,9 +11,13 @@ members = ["packages/viaggiatreno", "packages/viaggiatreno_mcp"]
 
 [tool.uv.sources]
 viaggiatreno = { workspace = true }
+viaggiatreno-mcp = { workspace = true }
 
 [dependency-groups]
 dev = [
+    # Workspace members: installed editable so tests/pyright resolve them.
+    "viaggiatreno",
+    "viaggiatreno-mcp",
     "ruff",
     "pyright",
     "pytest>=9.1.1",
@@ -31,4 +31,4 @@ asyncio_mode = "auto"
 line-length = 100
 
 [tool.pyright]
-pythonVersion = "3.14"
+pythonVersion = "3.12"

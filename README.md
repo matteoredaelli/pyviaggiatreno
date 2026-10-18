@@ -196,9 +196,13 @@ La repo ha 3 workflow automatici:
 ## 📦 Publishing to PyPI
 
 ### Prerequisites
+
+Il publish usa **Trusted Publishing (OIDC)** — nessun token da gestire. Configurazione una tantum:
+
 1. PyPI account (https://pypi.org)
-2. Generate token from PyPI
-3. Add token to GitHub Secrets: `PYPI_TOKEN`
+2. Per **ciascun** pacchetto (`viaggiatreno`, `viaggiatreno-mcp`), aggiungi un Trusted Publisher:
+   owner `matteoredaelli`, repo `pyviaggiatreno`, workflow `publish-pypi.yml`, environment `pypi`
+3. Crea l'environment `pypi` in GitHub (Settings → Environments)
 
 ### Release Process
 ```bash

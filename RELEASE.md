@@ -4,11 +4,24 @@ Guida per rilasciare nuove versioni dei pacchetti su PyPI.
 
 ## 📋 Prerequisiti
 
-1. **Token PyPI**: Genera un token dal tuo account PyPI (https://pypi.org/account/token/)
-2. **GitHub Secret**: Aggiungi il token come `PYPI_TOKEN` nei secrets del repo:
-   - Settings → Secrets → New repository secret
-   - Name: `PYPI_TOKEN`
-   - Value: `pypi-AgEIcHlwaS5vcmc...` (il tuo token)
+Il publish usa **Trusted Publishing (OIDC)**: nessun token da gestire o ruotare.
+Va configurato **una sola volta** su PyPI, per **ciascuno** dei due pacchetti
+(`viaggiatreno` e `viaggiatreno-mcp`).
+
+1. **Configura il Trusted Publisher su PyPI** (per ogni pacchetto):
+   - Progetto già esistente: *Manage → Publishing → Add a new publisher*
+   - Prima pubblicazione: *Account → Publishing → Add a pending publisher*
+   - Valori:
+     - **Owner**: `matteoredaelli`
+     - **Repository name**: `pyviaggiatreno`
+     - **Workflow name**: `publish-pypi.yml`
+     - **Environment name**: `pypi`
+
+2. **Crea l'environment GitHub** `pypi`:
+   - Settings → Environments → New environment → `pypi`
+   - (Opzionale) aggiungi un *required reviewer* per approvare ogni publish.
+
+> Non serve alcun `PYPI_TOKEN`: se ne avevi uno nei secrets, puoi rimuoverlo.
 
 ## 🔄 Flusso di Release
 
@@ -17,9 +30,9 @@ Guida per rilasciare nuove versioni dei pacchetti su PyPI.
 Prima di rilasciare, verifica che la build funzioni:
 
 ```bash
-# Localmente
-uv build packages/viaggiatreno
-uv build packages/viaggiatreno_mcp
+# Localmente (dalla root del repo)
+uv build --package viaggiatreno
+uv build --package viaggiatreno-mcp
 
 # Oppure: Trigger il workflow test-build.yml manualmente su GitHub
 ```
@@ -47,9 +60,9 @@ git push origin v0.1.0
 1. Vai a GitHub → Actions
 2. Seleziona workflow "Publish to PyPI"
 3. Osserva i job:
-   - `build-and-publish` (1 job per pacchetto)
-   - `publish` (pubblica su PyPI)
-   - `github-release` (crea GitHub Release)
+   - `build` (costruisce entrambi i pacchetti)
+   - `publish` (pubblica su PyPI via OIDC)
+   - `release` (crea GitHub Release)
 
 ### Step 5: Verifica su PyPI
 
@@ -139,10 +152,12 @@ Controlla:
 
 ```
 Verifica:
-1. PYPI_TOKEN è configurato nei secrets (Settings → Secrets)
-2. Token non è scaduto o revoked
-3. Nessun conflitto di versione su PyPI (impossibile overwrite)
-4. Email PyPI account è verificata
+1. Il Trusted Publisher è configurato su PyPI per ENTRAMBI i pacchetti
+   (owner matteoredaelli, repo pyviaggiatreno, workflow publish-pypi.yml, environment pypi)
+2. L'environment "pypi" esiste in GitHub (Settings → Environments)
+3. Il job publish ha permissions: id-token: write (già nel workflow)
+4. Nessun conflitto di versione su PyPI (impossibile overwrite)
+5. Email PyPI account è verificata
 ```
 
 ### ❌ Tag non pubblica
@@ -159,16 +174,17 @@ Verifica:
 
 ## 🚀 Manual Publishing (Emergency)
 
-Se il workflow fallisce, pubblica manualmente:
+Il publishing automatico è via OIDC e non richiede token. Se devi pubblicare
+manualmente (es. workflow non disponibile), serve un token PyPI **temporaneo**
+generato al momento da https://pypi.org/manage/account/token/ (revocalo dopo):
 
 ```bash
-# Build
-uv build packages/viaggiatreno
-uv build packages/viaggiatreno_mcp
+# Build (dalla root del repo)
+uv build --package viaggiatreno
+uv build --package viaggiatreno-mcp
 
-# Pubblica (richiede PYPI_TOKEN env var)
-export PYPI_TOKEN=pypi-...
-uv publish --token "$PYPI_TOKEN"
+# Pubblica con un token temporaneo (NON committarlo mai)
+uv publish --token pypi-...
 ```
 
 ---

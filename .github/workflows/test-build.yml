@@ -9,7 +9,8 @@ on:
       - "packages/**"
       - ".github/workflows/test-build.yml"
       - "pyproject.toml"
-  
+      - "uv.lock"
+
   pull_request:
     branches:
       - main
@@ -18,7 +19,8 @@ on:
       - "packages/**"
       - ".github/workflows/test-build.yml"
       - "pyproject.toml"
-  
+      - "uv.lock"
+
   # Allow manual triggering
   workflow_dispatch:
 
@@ -26,89 +28,79 @@ jobs:
   test-build:
     name: Test Build Packages
     runs-on: ubuntu-latest
-    
-    strategy:
-      matrix:
-        package:
-          - packages/viaggiatreno
-          - packages/viaggiatreno_mcp
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      
+
       - name: Install uv
-        uses: astral-sh/setup-uv@v2
+        uses: astral-sh/setup-uv@v6
         with:
-          version: "0.12.x"
-      
-      - name: Build ${{ matrix.package }}
+          enable-cache: true
+
+      - name: Build both packages
         run: |
-          cd ${{ matrix.package }}
-          uv build
-      
-      - name: Verify build artifacts
-        run: |
-          cd ${{ matrix.package }}
+          # uv build --package writes to the workspace-root dist/ directory
+          uv build --package viaggiatreno
+          uv build --package viaggiatreno-mcp
           echo "Build artifacts:"
           ls -lh dist/
-          
-          # Check wheel and tarball exist
           if [ -z "$(ls dist/*.whl 2>/dev/null)" ]; then
-            echo "❌ No wheel file found"
+            echo "No wheel file found"
             exit 1
           fi
-          echo "✓ Wheel file found"
-      
+          echo "Wheel files found"
+
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: test-dist-${{ matrix.package }}
-          path: ${{ matrix.package }}/dist/
+          name: test-dist
+          path: dist/
           retention-days: 3
-  
+
   test-install:
     name: Test Package Installation
     needs: test-build
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         package:
           - viaggiatreno
           - viaggiatreno_mcp
-    
+
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      
-      - name: Download ${{ matrix.package }} artifacts
+
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
+          name: test-dist
           path: dist
-      
+
       - name: Install and test ${{ matrix.package }}
         run: |
           # Find the wheel for this package
           WHEEL=$(find dist -name "*${{ matrix.package }}*py3*.whl" | head -1)
-          
+
           if [ -z "$WHEEL" ]; then
-            echo "❌ No wheel found for ${{ matrix.package }}"
+            echo "No wheel found for ${{ matrix.package }}"
             ls -la dist/
             exit 1
           fi
-          
+
           echo "Installing: $WHEEL"
           pip install "$WHEEL"
-          
+
           # Test import
           if [ "${{ matrix.package }}" = "viaggiatreno" ]; then
-            python -c "from viaggiatreno import ViaggiaTrenoClient; print('✓ viaggiatreno installed successfully')"
+            python -c "from viaggiatreno import ViaggiaTrenoClient; print('viaggiatreno installed successfully')"
           else
-            python -c "from viaggiatreno_mcp import create_server; print('✓ viaggiatreno-mcp installed successfully')"
+            python -c "from viaggiatreno_mcp import create_server; print('viaggiatreno-mcp installed successfully')"
           fi
