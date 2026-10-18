@@ -24,6 +24,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for hatch-vcs version
 
       - uses: actions/setup-python@v5
         with:
@@ -47,6 +49,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for hatch-vcs version
 
       - uses: actions/setup-python@v5
         with:
@@ -68,6 +72,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for hatch-vcs version
 
       - uses: actions/setup-python@v5
         with:

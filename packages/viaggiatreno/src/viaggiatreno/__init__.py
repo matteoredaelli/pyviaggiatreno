@@ -4,6 +4,8 @@ Libreria per interrogare le API non ufficiali di ViaggiaTreno: client HTTP
 asincrono, parser delle risposte e modelli dati tipizzati (pydantic).
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
 from viaggiatreno.api.client import ViaggiaTrenoClient, format_viaggiatreno_datetime
 from viaggiatreno.api.parsers import (
     parse_infomobilita_rss,
@@ -41,7 +43,14 @@ from viaggiatreno.models.train import (
     TrattaCanvasItem,
 )
 
-__version__ = "0.1.0"
+try:
+    # Generated at build time by hatch-vcs from the Git tag.
+    from viaggiatreno._version import __version__  # type: ignore[import-not-found,unused-ignore]
+except ImportError:  # pragma: no cover - only when running from an unbuilt tree
+    try:
+        __version__ = version("viaggiatreno")
+    except PackageNotFoundError:
+        __version__ = "0.0.0.dev0"
 
 __all__ = [
     "CLIENT_COMPANIES",
@@ -65,6 +74,7 @@ __all__ = [
     "TrattaSegment",
     "ViaggiaTrenoBaseModel",
     "ViaggiaTrenoClient",
+    "__version__",
     "format_viaggiatreno_datetime",
     "parse_infomobilita_rss",
     "parse_infomobilita_rss_box",

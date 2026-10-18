@@ -1054,7 +1054,7 @@ wheels = [
 
 [[package]]
 name = "pyviaggiatreno"
-version = "0.1.2"
+version = "0.0.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -1419,7 +1419,6 @@ wheels = [
 
 [[package]]
 name = "viaggiatreno"
-version = "0.1.0"
 source = { editable = "packages/viaggiatreno" }
 dependencies = [
     { name = "httpx" },
@@ -1434,7 +1433,6 @@ requires-dist = [
 
 [[package]]
 name = "viaggiatreno-mcp"
-version = "0.1.0"
 source = { editable = "packages/viaggiatreno_mcp" }
 dependencies = [
     { name = "fastmcp" },

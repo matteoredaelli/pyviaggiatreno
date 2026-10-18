@@ -196,10 +196,12 @@ uv publish --token pypi-...
 - [ ] Type check passa (`pyright packages/`)
 - [ ] README.md aggiornato
 - [ ] CHANGELOG aggiornato (opzionale)
-- [ ] Versione in `packages/viaggiatreno/src/viaggiatreno/__init__.py` (version string, se presente)
-- [ ] Versione coerente in entrambi i `pyproject.toml`
 - [ ] Commit pushato a main
 - [ ] Tag creato e pushato
+
+> ℹ️ La versione dei pacchetti è derivata automaticamente dal tag Git
+> (hatch-vcs): **non** devi modificare `version` nei `pyproject.toml`.
+> Il tag `vX.Y.Z` produce la versione `X.Y.Z` per entrambi i pacchetti.
 
 ---
 

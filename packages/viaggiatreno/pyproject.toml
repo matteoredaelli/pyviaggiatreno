@@ -1,14 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.12.23,<0.14.0"]
-build-backend = "uv_build"
-
-[tool.uv.build-backend]
-module-root = "src"
-module-name = "viaggiatreno"
+requires = ["hatchling>=1.32", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "viaggiatreno"
-version = "0.1.0"
+dynamic = ["version"]
 description = "ViaggiaTreno API Client - Core Library"
 readme = "README.md"
 license = { text = "MIT" }
@@ -26,3 +22,17 @@ Homepage = "https://github.com/matteoredaelli/pyviaggiatreno"
 Documentation = "https://github.com/matteoredaelli/pyviaggiatreno/blob/main/README.md"
 Repository = "https://github.com/matteoredaelli/pyviaggiatreno.git"
 Issues = "https://github.com/matteoredaelli/pyviaggiatreno/issues"
+
+# Derive the version from Git tags (e.g. tag "v0.5.0" -> version "0.5.0").
+# The repository root is two levels up from this package.
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../.." }
+
+# Write the resolved version to a generated module so it is importable at
+# runtime (viaggiatreno.__version__) without re-inspecting Git.
+[tool.hatch.build.hooks.vcs]
+version-file = "src/viaggiatreno/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/viaggiatreno"]

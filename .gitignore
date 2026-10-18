@@ -6,5 +6,8 @@ dist/
 wheels/
 *.egg-info
 
+# hatch-vcs generated version files
+packages/*/src/*/_version.py
+
 # Virtual environments
 .venv
