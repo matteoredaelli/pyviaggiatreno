@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.32", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "viaggiatreno-crawler"
+dynamic = ["version"]
+description = "Poller/crawler per raccogliere dati storici da ViaggiaTreno in SQLite"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Matteo Redaelli", email = "matteo.redaelli@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "viaggiatreno>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pyright",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[project.scripts]
+viaggiatreno-crawler = "viaggiatreno_crawler.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/matteoredaelli/pyviaggiatreno"
+Repository = "https://github.com/matteoredaelli/pyviaggiatreno.git"
+Issues = "https://github.com/matteoredaelli/pyviaggiatreno/issues"
+
+# Derive the version from Git tags, come gli altri package del workspace.
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../.." }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/viaggiatreno_crawler/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/viaggiatreno_crawler"]
