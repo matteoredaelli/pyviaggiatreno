@@ -22,6 +22,7 @@ API non ufficiali e non documentate del portale [ViaggiaTreno](http://www.viaggi
 - [Tratte e rete](#tratte-e-rete): `elencoTratte`, `dettagliTratta`
 - [Informazioni di servizio](#informazioni-di-servizio): `statistiche`, `datimeteo`, `infomobilitaRSS`, `infomobilitaRSSBox`, `infomobilitaTicker`, `language`
 - [Tabelloni RFI (iechub.rfi.it)](#tabelloni-rfi-iechubrlrit): visualizzazione web real-time dei tabelloni di stazione
+- [Pianificazione viaggio e altri endpoint minori](#pianificazione-viaggio-e-altri-endpoint-minori): `dettaglioViaggio`, `property`, `elencoStazioniCitta`, `getCoordinateStazione`, `coordinateCitta`, `news`
 - [Endpoint dismessi](#endpoint-dismessi)
 - [Tabelle di riferimento](#tabelle-di-riferimento)
 - [Insidie note](#insidie-note)
@@ -38,6 +39,7 @@ API non ufficiali e non documentate del portale [ViaggiaTreno](http://www.viaggi
 - **Identità di un treno**: il numero NON è univoco. La terna `(data, stazione di partenza, numero)` lo è [MB].
 - **Formato risposta**: JSON per gran parte degli endpoint, ma alcuni restituiscono `text/plain` in formato proprietario o frammenti HTML (indicato per ciascuno).
 - **HTTP 204**: alcuni endpoint rispondono `204 No Content` (corpo vuoto) invece di un errore quando il dato non esiste.
+- **User-Agent obbligatorio** *[LIVE, verificato 2026]*: senza un header `User-Agent` da browser, l'edge/WAF (Akamai) risponde `Access Denied` (pagina HTML, non JSON) anche per richieste altrimenti valide. Impostare un `User-Agent` tipo Chrome/Firefox desktop risolve il problema. Non è mai stato segnalato nelle fonti precedenti ([DLT], [MB], ecc.), probabilmente perché i loro client usavano già un UA di default plausibile.
 
 ---
 
@@ -943,27 +945,27 @@ Esempio d'uso citato in [TM]: `/tratteCanvas/S04203/2102/1620770400000`.
 
 ## Tratte e rete
 
-Questi due endpoint non compaiono in [DLT]. Sono documentati solo dal codice di [GT] e servono per ottenere in blocco **tutti i treni in circolazione**. I significati di alcuni parametri sono ignoti e indicati come tali.
+Questi due endpoint non compaiono in [DLT]. Sono documentati solo dal codice di [GT] e servono per ottenere in blocco **tutti i treni in circolazione**. Il nome dei parametri (`idRegione`, `zoomlevel`, `categoriaTreni`, `catAV`) è stato confermato dalla segnatura reale dell'endpoint e il loro comportamento è stato verificato dal vivo (vedi sotto).
 
 ### `elencoTratte`
 
 Elenco dei segmenti ferroviari della rete (coppie di nodi), con indicazione se sono occupati da treni. Non compare in [DLT]; documentato da [GT] e verificato dal vivo.
 
-`GET /elencoTratte/{p1}/{p2}/{categorie}/{p4}/{timestamp}`
+`GET /elencoTratte/{idRegione}/{zoomlevel}/{categoriaTreni}/{catAV}/{timestamp}`
+
+> Nomi dei parametri confermati dalla segnatura reale dell'endpoint (coerenti con tutte le verifiche dal vivo sotto): `idRegione`, `zoomlevel`, `categoriaTreni`, `catAV`, `timestamp`. In precedenza erano indicati come `p1`-`p4` perché non comparivano in nessuna fonte disponibile.
 
 Chiamata usata da [GT] e dallo script di probe: `/elencoTratte/0/6/ES*,IC,EXP,EC,EN,REG/null/{Date.now()}`
 
 | Input | Descrizione |
 |---|---|
-| `p1` = `0` | Significato non documentato (verosimilmente regione, `0` = tutte) |
-| `p2` = `6` | Significato non documentato |
-| `categorie` | Filtro categorie separato da virgola: `ES*` (Frecce), `IC`, `EXP`, `EC`, `EN`, `REG`. L'asterisco è un wildcard |
-| `p4` = `null` | Il testo `null` letterale; significato non documentato |
+| `idRegione` | **Codice regione** [LIVE, verificato variando il parametro]. `0` = tutta Italia (135 segmenti); `1` = Lombardia (99 segmenti); `9` = Trentino-Alto Adige (9 segmenti, regione piccola); valori provati 1-22 restituiscono sottoinsiemi di dimensione plausibile. Stesso codice usato da `elencoStazioni`/`regione`/`datimeteo` (vedi [tabella](#codici-regione)) |
+| `zoomlevel` | **Livello di zoom della mappa** [LIVE, confermato dal nome reale del parametro]. Non è una finestra temporale come ipotizzato in una prima analisi: test su `zoomlevel=0..14` (p1=0, stesso istante) danno `85` segmenti occupati per `0-5` e per `12-14`, ma **`123-124`** per `6-11`. Il range `6-11` coincide con i livelli di zoom usati altrove nell'API per decidere la visibilità di una stazione sulla mappa (`dettZoomStaz[].zoomStartRange/zoomStopRange` in `elencoStazioni`/`dettaglioStazione` usa valori `8-9` e `10-11`). Ipotesi: per i livelli di zoom effettivamente usati dalla mappa interattiva del sito, il server calcola `occupata` in modo più "aggregato" (forse sui segmenti padre `parentAB`/`parentBA`, che in 49 segmenti su 135 differiscono da `trattaAB`/`trattaBA`), mentre fuori da quel range usa un calcolo di base più conservativo. **Consigliato `zoomlevel=6`** (o qualunque valore 6-11) per il quadro più completo |
+| `categoriaTreni` | Filtro categorie separato da virgola: `ES*` (Frecce), `IC`, `EXP`, `EC`, `EN`, `REG`. L'asterisco è un wildcard. Riduce anche il conteggio di `occupata` se restringi le categorie [LIVE] |
+| `catAV` = `null` | Il testo `null` letterale; probabilmente un filtro specifico per i treni Alta Velocità (da qui il nome), forse pensato per accettare una stringa di categoria (es. `"AV"`) analoga a `categoriaTreni`. **Fragile** [LIVE]: `null` e `0` danno risultati normali, ma qualsiasi altro intero (`1`, `5`, `10`, `60`) azzera silenziosamente `occupata` per **tutti** i segmenti (risposta `200` valida, nessun errore, solo dati sbagliati) — coerente con un parser che si aspetta una stringa/categoria e si comporta in modo imprevisto con un numero; un valore non numerico a caso (es. `abc`) causa `HTTP 500`. **Non modificare, lasciare sempre `null`** |
 | `timestamp` | Timestamp corrente in ms (probabilmente anti-cache) |
 
-Non ho variato `p1`, `p2` e `p4` per capirne il significato: sono tutti da verificare.
-
-**Output**: `application/json`, array di segmenti. *[LIVE]*: **135** segmenti, di cui **122** con `occupata: true`.
+**Output**: `application/json`, array di segmenti. *[LIVE]*: **135** segmenti nazionali, di cui **122** con `occupata: true` (con `p1=0, p2=6`).
 
 | Campo | Descrizione |
 |---|---|
@@ -991,7 +993,11 @@ Non ho variato `p1`, `p2` e `p4` per capirne il significato: sono tutti da verif
 }
 ```
 
-**Note**: nel primo elemento `nodoA` è `S00000` e `nodoB` è `S99999`: sembrano codici segnaposto di nodi non-stazione, non codici stazione validi.
+**Note**:
+- Nel primo elemento `nodoA` è `S00000` e `nodoB` è `S99999`: sembrano codici segnaposto di nodi non-stazione, non codici stazione validi.
+- `nodoA`/`nodoB` non sono sempre stazioni passeggeri: esistono nodi tecnici (bivi/diramazioni) con coordinate valide ma senza nome, senza `localita` e senza `codReg` (es. `S01002`, `S01021`, `S01139`, `S01789`, trovati filtrando per regione `1`): `dettaglioStazione` risponde `200` ma con quasi tutti i campi `null`, e non compaiono in **nessun** `elencoStazioni/{regione}` da 1 a 22 [LIVE]. Da escludere quando si mappano i segmenti a stazioni "vere".
+- **Il filtro `idRegione` filtra i *segmenti* per posizione geografica, non i *treni*** [LIVE]. Un segmento vicino al confine regionale (es. Milano-Piacenza, filtrato con `idRegione=1` Lombardia) può restituire treni di lunghissima percorrenza che non hanno nulla a che fare con la regione se non il fatto di transitarci in quel momento: nel campione, sul segmento Milano Centrale sono comparsi treni `LECCE -> MILANO CENTRALE` e `VENEZIA S.LUCIA -> MILANO CENTRALE`. Il campo `regione` dentro ogni treno **non è una proprietà della corsa**: è semplicemente l'eco del parametro `idRegione` usato nella query (vale `1` per quei treni solo perché la query usava `idRegione=1`, non perché il treno sia "lombardo"). Per un filtro "treni che partono/arrivano davvero in questa regione" bisogna confrontare `codOrigine`/`codDestinazione` con l'elenco stazioni della regione, non fidarsi del campo `regione`.
+- Una stazione di confine può comparire nell'`elencoStazioni` di più regioni (es. Piacenza `S05000` compare sia in regione 1 - Lombardia - sia in regione 8 - Emilia-Romagna, dove è davvero di competenza) [MB, LIVE].
 
 ---
 
@@ -999,90 +1005,109 @@ Non ho variato `p1`, `p2` e `p4` per capirne il significato: sono tutti da verif
 
 Treni attualmente presenti su un segmento. Non compare in [DLT]; documentato da [GT] e verificato dal vivo.
 
-`GET /dettagliTratta/{p1}/{trattaAB}/{trattaBA}/{categorie}/{p5}`
+`GET /dettagliTratta/{idRegione}/{trattaAB}/{trattaBA}/{categoriaTreni}/{catAV}`
+
+> Parametri rinominati per coerenza con la segnatura reale confermata per `elencoTratte` (stessa famiglia di nomi, [vedi sopra](#elencotratte)); indicati prima come `p1`/`p5` in assenza di fonti.
 
 Chiamata usata da [GT] e dallo script di probe: `/dettagliTratta/0/{trattaAB}/{trattaBA}/ES*,IC,EXP,EC,EN,REG/null`
 
 | Input | Descrizione |
 |---|---|
-| `p1` = `0` | Come in `elencoTratte` |
-| `trattaAB`, `trattaBA` | ID dei due sensi, da `elencoTratte` |
-| `categorie` | Come in `elencoTratte` |
-| `p5` = `null` | Testo `null` letterale |
+| `idRegione` | **Deve essere lo stesso codice regione usato nella chiamata a `elencoTratte` che ha prodotto `trattaAB`/`trattaBA`** [LIVE, scoperta critica]. Non è un parametro cosmetico: gli ID `trattaAB`/`trattaBA` sono numerati **per regione**, non sono identificatori globali della rete. Esempio verificato: `trattaAB=10, trattaBA=92` con `idRegione=0` restituisce il treno `PISA CENTRALE -> GROSSETO` (Toscana), mentre lo **stesso** `trattaAB=10, trattaBA=92` con `idRegione=1` restituisce `MILANO GRECO PIRELLI -> PIACENZA` (Lombardia): sono due segmenti fisicamente diversi che condividono per coincidenza lo stesso ID in numerazioni regionali diverse. Mischiare un `idRegione` preso da una chiamata `elencoTratte` con un `idRegione` diverso in `dettagliTratta` dà **treni completamente sbagliati senza nessun errore** (risposta `200` valida) |
+| `trattaAB`, `trattaBA` | ID dei due sensi, da `elencoTratte` (con lo stesso `idRegione`) |
+| `categoriaTreni` | Come in `elencoTratte` |
+| `catAV` = `null` | Testo `null` letterale, come `catAV` in `elencoTratte` |
 
-**Output**: `application/json`, array di oggetti `{ "tratta": null, "treni": [...] }`. *[LIVE]*: per `trattaAB=510`, `trattaBA=511` ha restituito **2** oggetti, con 5, 4 treni, quindi probabilmente un oggetto per senso di marcia (da confermare). Ogni treno ha **gli stessi 74 campi** di una riga di `partenze`/`arrivi`, con una differenza: `orarioPartenza` e `orarioArrivo` sono **stringhe** `"2026-10-04"` (solo la data) e non timestamp in ms. L'orario va letto da `compOrarioPartenza`/`compOrarioArrivo` (`HH:MM`). `tratta` nel treno è l'ID del segmento (`510`).
+**Output**: `application/json`, array di oggetti `{ "tratta": <nome o null>, "treni": [...] }`. *[LIVE]*: per `trattaAB=510`, `trattaBA=511` ha restituito **2** oggetti, con 5, 4 treni, quindi un oggetto per senso di marcia. In un'altra chiamata (`trattaAB=10`, `trattaBA=92`, `p1=1`), il campo `tratta` del wrapper **non era `null` ma il nome leggibile del segmento** nel verso corrispondente (`"Codogno - Piacenza"` / `"Piacenza - Codogno"`): sembra quindi valorizzato quando il segmento ha un nome noto, `null` altrimenti (es. per i nodi segnaposto `S00000`/`S99999`). Ogni treno ha **gli stessi 74 campi** di una riga di `partenze`/`arrivi`, con una differenza: `orarioPartenza` e `orarioArrivo` sono **stringhe** `"YYYY-MM-DD"` (solo la data) e non timestamp in ms. L'orario va letto da `compOrarioPartenza`/`compOrarioArrivo` (`HH:MM`). Il campo `tratta` **dentro il treno** (da non confondere con quello del wrapper) è invece l'ID numerico del segmento in quel senso (es. `10`).
 
-**Esempio** *[LIVE]*: primo treno del primo oggetto (REG 17807 Bologna Centrale → Firenze S.M.N.; campi `null` omessi, array multilingua troncati)
+**Nota sul campo `regione` del treno**: non riflette la provenienza/competenza reale del treno, ma semplicemente il valore di `idRegione` passato nella query (verificato: lo stesso treno Milano↔Piacenza riporta `regione: 1` se interrogato con `idRegione=1`). Per capire se un treno è davvero "della regione" bisogna guardare `codOrigine`/`codDestinazione` rispetto all'elenco stazioni della regione, non questo campo.
+
+**Esempio** *[LIVE]*: `GET /dettagliTratta/1/10/92/ES*,IC,EXP,EC,EN,REG/null` (segmento Codogno↔Piacenza, regione Lombardia), risposta completa con i due sensi di marcia; campi `null` omessi, array multilingua troncati
 
 ```json
-{
-  "arrivato": false,
-  "dataPartenzaTrenoAsDate": "2026-10-04",
-  "dataPartenzaTreno": 1791064800000,
-  "numeroTreno": 17807,
-  "categoria": "REG",
-  "origine": "BOLOGNA CENTRALE",
-  "codOrigine": "S05043",
-  "destinazione": "FIRENZE SANTA MARIA NOVELLA",
-  "codDestinazione": "S06421",
-  "tratta": 510,
-  "regione": 0,
-  "circolante": true,
-  "codiceCliente": 2,
-  "inStazione": false,
-  "haCambiNumero": false,
-  "nonPartito": false,
-  "provvedimento": 0,
-  "riprogrammazione": "N",
-  "orarioPartenza": "2026-10-04",
-  "orarioArrivo": "2026-10-04",
-  "corrispondenze": [],
-  "servizi": [],
-  "ritardo": 2,
-  "tipoProdotto": "0",
-  "compOrarioPartenzaZeroEffettivo": "06:35",
-  "compOrarioPartenzaZero": "06:35",
-  "compOrarioArrivo": "08:26",
-  "compOrarioPartenza": "06:35",
-  "compNumeroTreno": "REG 17807",
-  "compOrientamento": [
-    "--",
-    "--",
-    "…"
-  ],
-  "compTipologiaTreno": "regionale",
-  "compClassRitardoTxt": "",
-  "compClassRitardoLine": "regolare_line",
-  "compImgRitardo2": "/vt_static/img/legenda/icone_legenda/regolare.png",
-  "compImgRitardo": "/vt_static/img/legenda/icone_legenda/regolare.png",
-  "compRitardo": [
-    "ritardo 2 min.",
-    "delay 2 min.",
-    "…"
-  ],
-  "compRitardoAndamento": [
-    "con un ritardo di 2 min.",
-    "2 minutes late",
-    "…"
-  ],
-  "compInStazionePartenza": [
-    "",
-    "",
-    "…"
-  ],
-  "compInStazioneArrivo": [
-    "",
-    "",
-    "…"
-  ],
-  "compOrarioEffettivoArrivo": "/vt_static/img/legenda/icone_legenda/regolare.png08:28",
-  "compDurata": "1:51",
-  "compImgCambiNumerazione": "&nbsp;&nbsp;",
-  "ultimoRilev": 1791094290000
-}
+[
+  {
+    "tratta": "Codogno - Piacenza",
+    "treni": [
+      {
+        "arrivato": true,
+        "dataPartenzaTrenoAsDate": "2026-10-19",
+        "dataPartenzaTreno": 1792360800000,
+        "numeroTreno": 10885,
+        "categoria": "REG",
+        "origine": "MILANO GRECO PIRELLI",
+        "codOrigine": "S01326",
+        "destinazione": "PIACENZA",
+        "codDestinazione": "S05000",
+        "tratta": 10,
+        "regione": 1,
+        "circolante": true,
+        "codiceCliente": 63,
+        "inStazione": false,
+        "provvedimento": 0,
+        "riprogrammazione": "N",
+        "orarioPartenza": "2026-10-19",
+        "orarioArrivo": "2026-10-19",
+        "ritardo": 6,
+        "compOrarioPartenza": "21:10",
+        "compOrarioArrivo": "22:26",
+        "compNumeroTreno": "REG 10885",
+        "compTipologiaTreno": "regionale",
+        "compRitardo": [
+          "ritardo 6 min.",
+          "delay 6 min.",
+          "…"
+        ],
+        "compDurata": "1:16",
+        "ultimoRilev": 1792441890000
+      }
+    ]
+  },
+  {
+    "tratta": "Piacenza - Codogno",
+    "treni": [
+      {
+        "arrivato": false,
+        "dataPartenzaTrenoAsDate": "2026-10-19",
+        "dataPartenzaTreno": 1792360800000,
+        "numeroTreno": 614,
+        "categoria": "IC",
+        "origine": "LECCE",
+        "codOrigine": "S11145",
+        "destinazione": "MILANO CENTRALE",
+        "codDestinazione": "S01700",
+        "tratta": 92,
+        "regione": 1,
+        "circolante": true,
+        "codiceCliente": 4,
+        "inStazione": false,
+        "provvedimento": 0,
+        "riprogrammazione": "N",
+        "orarioPartenza": "2026-10-19",
+        "orarioArrivo": "2026-10-19",
+        "ritardo": 9,
+        "compOrarioPartenza": "11:54",
+        "compOrarioArrivo": "23:40",
+        "compNumeroTreno": "IC 614",
+        "compTipologiaTreno": "nazionale",
+        "compRitardo": [
+          "ritardo 9 min.",
+          "delay 9 min.",
+          "…"
+        ],
+        "compDurata": "11:46",
+        "ultimoRilev": 1792443000000
+      }
+    ]
+  }
+]
 ```
 
-**Note**: per non sovraccaricare il server, [GT] chiama `dettagliTratta` solo per i segmenti con `trattaAB`/`trattaBA` distinti e deduplica i treni per `(numeroTreno, regione)`, perché lo stesso numero può esistere in regioni diverse.
+Questo esempio mostra bene il punto delle Note sopra: `IC 614 Lecce → Milano Centrale`, un treno di lunghissima percorrenza senza alcuna relazione "logica" con la Lombardia, compare semplicemente perché nell'istante della chiamata transitava sul segmento Piacenza-Codogno, con `regione: 1` solo perché la query usava `p1=1`.
+
+**Note**:
+- Per non sovraccaricare il server, [GT] chiama `dettagliTratta` solo per i segmenti con `trattaAB`/`trattaBA` distinti e deduplica i treni per `(numeroTreno, regione)`, perché lo stesso numero può esistere in regioni diverse. Dato che il campo `regione` è solo l'eco di `idRegione` (vedi sopra), la deduplica robusta è `(numeroTreno, codOrigine, dataPartenzaTreno)` come ovunque nell'API.
+- Per un inventario "tutti i treni circolanti in una regione": usare `elencoTratte/{regione}/6/{categorie}/null/{ts}`, filtrare i segmenti con `occupata: true`, chiamare `dettagliTratta/{stessa regione}/{trattaAB}/{trattaBA}/{categorie}/null` per ciascuno. Il risultato includerà anche treni di lunga percorrenza solo in transito (es. Lecce→Milano): se serve restringere ai treni realmente originati/destinati nella regione, filtrare a valle su `codOrigine`/`codDestinazione`.
 
 ---
 
@@ -1122,13 +1147,38 @@ Previsioni meteo (oggi/domani, per fascia oraria) per le stazioni di una regione
 
 **Output**: `application/json`, oggetto indicizzato per codice stazione. I valori `*Tempo*` sono codici numerici di condizione meteo (significato non documentato).
 
-**Esempio live: risposta vuota.** *[LIVE]*: `GET /datimeteo/1` (4 ottobre 2026) ha risposto 200, `application/json`, corpo:
+**Esempio** *[LIVE]*: `GET /datimeteo/1` (Lombardia), con due comportamenti osservati in momenti diversi:
+
+- Il 4 ottobre 2026 ha risposto `200`, `application/json`, corpo `{}` (nessuna stazione).
+- Il 19 ottobre 2026 ha risposto `200` con **11 stazioni popolate** (es. `S01700`, `S01430`, `S02336`...), formato completo come sotto.
+
+**Il servizio è quindi intermittente/poco affidabile**, non permanentemente vuoto come ipotizzato in una prima analisi: il client deve comunque gestire `{}` come caso valido ("nessun dato in questo momento"), ma non deve assumere che il servizio sia definitivamente fuori uso se lo vede vuoto una volta. Formato di un elemento popolato (reale, *[LIVE]*, 19 ottobre 2026):
 
 ```json
-{}
+{
+  "S01700": {
+    "codStazione": "S01700",
+    "oggiTemperatura": 16,
+    "oggiTemperaturaMattino": 16,
+    "oggiTemperaturaPomeriggio": 16,
+    "oggiTemperaturaSera": 17,
+    "oggiTempo": 10,
+    "oggiTempoMattino": 10,
+    "oggiTempoPomeriggio": 10,
+    "oggiTempoSera": 110,
+    "domaniTemperatura": 17,
+    "domaniTemperaturaMattino": 17,
+    "domaniTemperaturaPomeriggio": 13,
+    "domaniTemperaturaSera": 12,
+    "domaniTempo": 1,
+    "domaniTempoMattino": 10,
+    "domaniTempoPomeriggio": 1,
+    "domaniTempoSera": 101
+  }
+}
 ```
 
-Il servizio quindi non restituisce più dati per la Lombardia (o, almeno, non lo fa in questo momento): il client deve gestire `{}` come "nessun dato" anche per regioni diverse dalla 9. Quando popolato, il formato era (reale, fonte [DLT], 2025):
+In precedenza (fonte [DLT], 2025) il formato era identico, solo con valori diversi (es. `oggiTemperatura: 37`).
 
 ```json
 {
@@ -1343,9 +1393,72 @@ https://iechub.rfi.it/ArriviPartenze/ArrivalsDepartures/Monitor?Arrivals=True&Se
 
 ---
 
+## Pianificazione viaggio e altri endpoint minori
+
+Endpoint trovati elencando per intero lo script ufficiale del sito, <http://www.viaggiatreno.it/infomobilita/rest-jsapi> (`rest-api.js`), che contiene i commenti `// GET /resteasy/viaggiatreno/{endpoint}` per **tutti** gli endpoint realmente usati dal client web. È la fonte più autorevole possibile (codice del sito stesso) e permette di distinguere con certezza gli endpoint reali da quelli mai esistiti o rimossi.
+
+### `dettaglioViaggio`
+
+**Funzionante e non censito prima di questa verifica.** Restituisce i treni **diretti** (senza cambi) tra due stazioni nella giornata corrente — è di fatto l'endpoint che avrebbe dovuto fornire `soluzioniViaggioNew` (dismesso, vedi sotto), ma realmente operativo.
+
+`GET /dettaglioViaggio/{idStazioneDa}/{idStazioneA}`
+
+| Input | Tipo | Descrizione |
+|---|---|---|
+| `idStazioneDa` | string (path) | Codice stazione di partenza (`^S\d{5}$`) |
+| `idStazioneA` | string (path) | Codice stazione di arrivo |
+
+**Output**: `application/json`, array di treni con lo stesso schema a 74+ campi di `partenze`/`arrivi`/`dettagliTratta` (`numeroTreno`, `ritardo`, binari, orari, ecc.), senza bisogno di specificare una data/ora (sembra sempre riferirsi alla giornata corrente).
+
+**Esempio** *[LIVE]*: `GET /dettaglioViaggio/S01700/S06421` (Milano Centrale → Firenze S.M.N.) ha restituito **3** treni diretti:
+
+```
+9303 FR 05:50 -> 08:50
+9515 FR 07:10 -> 09:04
+9519 FR 08:10 -> 10:04
+```
+
+**Note**: non supporta interscambi (treni con cambio); per percorsi che richiedono un cambio non c'è alternativa nelle API ViaggiaTreno [DLT] (stesso limite già segnalato per `soluzioniViaggioNew`).
+
+### `property`
+
+`GET /resteasy/viaggiatreno/property/{name}`
+
+L'endpoint **esiste** (non risponde `404`) ma ha risposto **`204 No Content`** con tutti i nomi plausibili provati dal vivo (`version`, `app.version`, `buildNumber`, `release`, `environment`, `env`, `application.name`, ecc.). Probabilmente serve per leggere proprietà di configurazione interne del backend con nomi noti solo al codice del sito stesso; nessun nome valido individuato finora.
+
+### `elencoStazioniCitta`
+
+`GET /resteasy/viaggiatreno/elencoStazioniCitta/{stazione}`
+
+L'endpoint **esiste** (risponde `200`, `application/json`) ma ha restituito **sempre `[]`** nei test dal vivo, con vari input (`Milano`, `MILANO`, `Firenze`). Non è chiaro se richieda un formato diverso (es. un ID città invece del nome) o se sia semplicemente senza dati popolati, come osservato per `datimeteo`.
+
+### `getCoordinateStazione` / `coordinateCitta`
+
+Varianti semplificate di `dettaglioStazione`, trovate nello stesso script, utili quando serve solo la posizione e non si vuole passare il codice regione:
+
+```
+GET /getCoordinateStazione/{codiceStazione}  -> stessa forma di dettaglioStazione, con quasi tutti i campi null tranne lat/lon
+GET /coordinateCitta/{codiceStazione}        -> {"latitudine": ..., "longitudine": ...}
+```
+
+**Esempio** *[LIVE]*: `GET /coordinateCitta/S01700` → `{"latitudine":45.486347,"longitudine":9.204528}`.
+
+### `news`
+
+Alternativa a `infomobilitaRSS`, in formato JSON invece di HTML.
+
+`GET /news/{codRegione}/{lingua}`
+
+**Esempio** *[LIVE]*: `GET /news/0/it` ha restituito una notizia, ma **datata dicembre 2019** (`"data":1575887696000`), a differenza di `infomobilitaRSS` che nello stesso momento mostrava notizie aggiornate al giorno corrente. Sembra un servizio poco mantenuto/con dati non aggiornati: non affidabile per infomobilità corrente, preferire `infomobilitaRSS`/`infomobilitaRSSBox`.
+
+---
+
 ## Endpoint dismessi
 
-- `soluzioniViaggioNew`: serviva per le soluzioni di viaggio tra due stazioni. Prima restituiva una lista vuota, ora `404`. Non c'è alternativa nelle API ViaggiaTreno [DLT].
+- `soluzioniViaggioNew`: serviva per le soluzioni di viaggio tra due stazioni. Prima restituiva una lista vuota, ora `404`. Non c'è alternativa diretta, ma vedi `dettaglioViaggio` sopra per i soli treni diretti senza cambio.
+- `dettaglioProgrammaOrario/{dataDa}/{dataA}/{idStazionePartenza}/{idStazioneArrivo}`: **non esiste più** — `HTTP 404` *[LIVE]* e non compare nello script ufficiale `rest-jsapi`.
+- `cercaProgrammaOrarioDestinazioneAutocomplete/{idStazionePartenza}`: **non esiste più** — `HTTP 404` *[LIVE]*, non compare nello script ufficiale.
+- `cercaProgrammaOrarioOrigineAutocomplete/{idStazioneArrivo}`: **non esiste più** — `HTTP 404` *[LIVE]*, non compare nello script ufficiale.
 
 ---
 
@@ -1394,10 +1507,16 @@ Campo `codiceCliente` (codice RFI dell'impresa ferroviaria); tabella possibilmen
 4. **Il numero di treno non è un ID**: usare sempre la terna (data, stazione di origine, numero) [MB].
 5. **Formato data di `partenze`/`arrivi`**: stringa in stile JavaScript, va URL-encoded; fusi orari e nomi (`Central European Time`) accettati [DLT].
 6. **Cancellazioni parziali**: `partenze` può mostrare il treno con `provvedimento: 2` e `riprogrammazione: "Y"` mentre `andamentoTreno` risponde `204` [MB].
-7. **`datimeteo` vuoto**: `GET /datimeteo/1` restituisce `{}` (verificato il 4 ottobre 2026). Trattare `{}` come "nessun dato".
+7. **`datimeteo` intermittente**: può restituire `{}` (nessuna stazione) in alcuni momenti e dati popolati in altri per la stessa regione (verificato: `{}` il 4 ottobre 2026, 11 stazioni popolate il 19 ottobre 2026 per `codiceRegione=1`). Trattare sia `{}` sia le risposte popolate come esiti normali, non assumere che il servizio sia permanentemente fuori uso.
 8. **`orarioPartenza`/`orarioArrivo` cambiano tipo**: sono timestamp in ms in `partenze`/`arrivi`/`andamentoTreno`, ma stringhe `"YYYY-MM-DD"` in `dettagliTratta` [LIVE].
 9. **`subTitle`**: stringa vuota in `andamentoTreno` regolare, ma può essere `null` e rompe il sito ufficiale; il client deve gestirlo [DLT].
 10. **Elenchi stazioni incompleti**: né `cercaStazione` né `elencoStazioni` contengono tutte le stazioni; alcune compaiono solo come fermate di treni in corsa [MB].
 11. **`occupata` in `elencoTratte` inaffidabile**: a volte molte tratte risultano libere per un malfunzionamento del servizio [GT].
 12. **Rate limiting**: non documentato, ma i progetti che interrogano in massa (es. [GT] con `dettagliTratta` per ogni segmento) deduplicano le richieste. Usare richieste moderate [fonti varie].
 13. **Protocollo**: tutte le chiamate dal vivo e le fonti usano `http://`; `https://` non è stato verificato.
+14. **Accesso negato senza User-Agent** [LIVE]: senza un header `User-Agent` plausibile (browser), l'edge/WAF risponde `Access Denied` (HTML) invece dei dati, su qualsiasi endpoint. Impostare sempre uno User-Agent da browser desktop.
+15. **`elencoTratte`/`dettagliTratta`: il parametro `idRegione` è il codice regione** e filtra i *segmenti*, non i treni: un segmento al confine regionale può restituire treni di lunga percorrenza del tutto estranei alla regione (es. Lecce→Milano su un segmento "Lombardia") [LIVE]. Il campo `regione` del treno in questi endpoint è solo l'eco di `idRegione`, non una proprietà della corsa.
+16. **`trattaAB`/`trattaBA` non sono ID globali**: sono numerati per regione. Usare `dettagliTratta` con un `idRegione` diverso da quello usato per ottenere quegli ID da `elencoTratte` restituisce treni di un segmento completamente diverso, senza errore [LIVE].
+17. **`elencoTratte`: il parametro `zoomlevel` non è cosmetico**: fuori dal range `6-11` (livelli di zoom usati dalla mappa interattiva) il conteggio dei segmenti `occupata` scende sensibilmente (85 invece di 123-124 su un campione nazionale) [LIVE]. Usare un valore in quel range per non sottostimare i treni in circolazione.
+18. **`elencoTratte`: il parametro `catAV` è fragile**: solo `null` o `0` funzionano come previsto; qualsiasi altro intero azzera silenziosamente tutti i flag `occupata` (falsi negativi su tutta la risposta, senza errore); un valore non numerico causa `HTTP 500` [LIVE].
+18. **Nodi tecnici in `elencoTratte`**: `nodoA`/`nodoB` possono essere bivi/diramazioni senza nome né dati di stazione (`dettaglioStazione` risponde 200 con quasi tutti i campi `null`) e non compaiono in nessun `elencoStazioni` [LIVE].

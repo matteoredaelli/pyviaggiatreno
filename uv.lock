@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "pyviaggiatreno",
     "viaggiatreno",
+    "viaggiatreno-crawler",
     "viaggiatreno-mcp",
 ]
 
@@ -1064,6 +1065,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
     { name = "viaggiatreno" },
+    { name = "viaggiatreno-crawler" },
     { name = "viaggiatreno-mcp" },
 ]
 
@@ -1076,6 +1078,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "ruff" },
     { name = "viaggiatreno", editable = "packages/viaggiatreno" },
+    { name = "viaggiatreno-crawler", editable = "packages/viaggiatreno_crawler" },
     { name = "viaggiatreno-mcp", editable = "packages/viaggiatreno_mcp" },
 ]
 
@@ -1430,6 +1433,31 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.13.5" },
 ]
+
+[[package]]
+name = "viaggiatreno-crawler"
+source = { editable = "packages/viaggiatreno_crawler" }
+dependencies = [
+    { name = "viaggiatreno" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pyright", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.0" },
+    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "viaggiatreno", editable = "packages/viaggiatreno" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "viaggiatreno-mcp"

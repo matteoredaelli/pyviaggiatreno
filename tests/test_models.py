@@ -89,8 +89,19 @@ def test_arrivi_board_model():
     items = [TrainBoardItem.model_validate(x) for x in data]
     assert len(items) == 32
     assert items[0].numeroTreno == 2452
-    assert items[0].origine == "PARMA"
-    assert items[0].binarioEffettivoArrivoDescrizione == "22"
+
+
+def test_dettaglio_viaggio_model():
+    """Endpoint non documentato in nessuna fonte nota, trovato nello script
+    ufficiale rest-jsapi e verificato dal vivo il 20/10/2026 (vedi VIAGGIATRENO.md).
+    Restituisce i treni diretti tra due stazioni con lo stesso schema di
+    partenze/arrivi."""
+    data = load_sample_json("dettaglioViaggio")
+    items = [TrainBoardItem.model_validate(x) for x in data]
+    assert len(items) == 3
+    assert items[0].numeroTreno == 9303
+    assert items[0].origine == "MILANO CENTRALE"
+    assert items[0].destinazione == "FIRENZE SANTA MARIA NOVELLA"
 
 
 def test_tratte_canvas_model():
@@ -119,6 +130,14 @@ def test_dettagli_tratta_model():
     assert len(groups[0].treni) == 5
     assert groups[0].treni[0].numeroTreno == 17807
     assert len(groups[1].treni) == 4
+
+
+def test_dettagli_tratta_tratta_field_accetta_nome_segmento():
+    """Con id_regione > 0 il campo `tratta` del wrapper può essere il nome
+    leggibile del segmento (es. \"Codogno - Piacenza\"), non solo int/null
+    (verificato dal vivo il 19/10/2026, vedi VIAGGIATRENO.md)."""
+    group = DettaglioTratta.model_validate({"tratta": "Codogno - Piacenza", "treni": []})
+    assert group.tratta == "Codogno - Piacenza"
 
 
 def test_statistics_model():

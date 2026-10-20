@@ -205,6 +205,30 @@ class ViaggiaTrenoClient:
         data = r.json()
         return [TrainBoardItem.model_validate(item) for item in data]
 
+    async def dettaglio_viaggio(
+        self,
+        id_stazione_da: str,
+        id_stazione_a: str,
+    ) -> list[TrainBoardItem]:
+        """Treni diretti (senza cambi) tra due stazioni nella giornata corrente.
+
+        GET /dettaglioViaggio/{idStazioneDa}/{idStazioneA}
+
+        Endpoint non documentato in nessuna delle fonti note ([DLT], [MB], [GT],
+        [TM]), trovato nello script ufficiale del sito (``rest-jsapi``) e
+        verificato dal vivo. Di fatto sostituisce il dismesso
+        ``soluzioniViaggioNew`` (ora 404) per il solo caso dei treni diretti:
+        non gestisce percorsi con interscambio.
+        """
+        r = await self._request(
+            f"dettaglioViaggio/{quote(id_stazione_da)}/{quote(id_stazione_a)}"
+        )
+        if r.status_code == 204 or not r.text.strip():
+            return []
+        r.raise_for_status()
+        data = r.json()
+        return [TrainBoardItem.model_validate(item) for item in data]
+
     # -------------------------------------------------------------------------
     # TRENI
     # -------------------------------------------------------------------------
@@ -267,11 +291,38 @@ class ViaggiaTrenoClient:
     async def elenco_tratte(
         self,
         categorie: str = "ES*,IC,EXP,EC,EN,REG",
+        id_regione: int = 0,
+        zoomlevel: int = 6,
         timestamp: int | None = None,
     ) -> list[TrattaSegment]:
-        """Segmenti della rete e occupazione da treni (GET /elencoTratte/0/6/{categorie}/null/{timestamp})."""
+        """Segmenti della rete e occupazione da treni.
+
+        GET /elencoTratte/{idRegione}/{zoomlevel}/{categorie}/{catAV}/{timestamp}
+
+        Nomi dei parametri confermati dalla segnatura reale dell'endpoint (vedi
+        VIAGGIATRENO.md). Note verificate dal vivo:
+
+        - ``id_regione``: 0 = tutta Italia, 1-22 = singola regione (stesso
+          codice di ``elenco_stazioni``/``regione``). Filtra i *segmenti* per
+          posizione geografica, non i treni: un segmento di confine può
+          restituire treni di lunga percorrenza estranei alla regione.
+        - ``zoomlevel``: livello di zoom della mappa, non una finestra
+          temporale. Fuori dal range 6-11 il conteggio dei segmenti
+          ``occupata`` risulta sensibilmente più basso. Il default ``6`` è
+          quello verificato come più completo.
+        - ``catAV`` (quarto segmento del path) non è esposto come parametro:
+          va lasciato sempre ``null``, qualsiasi altro valore numerico azzera
+          silenziosamente tutti i flag ``occupata``.
+
+        Gli ID ``trattaAB``/``trattaBA`` restituiti sono numerati **per
+        regione**: vanno passati a :meth:`dettagli_tratta` insieme allo stesso
+        ``id_regione`` usato qui, altrimenti si ottengono treni di un segmento
+        fisicamente diverso senza nessun errore.
+        """
         ts = timestamp if timestamp is not None else int(time.time() * 1000)
-        r = await self._request(f"elencoTratte/0/6/{quote(categorie)}/null/{ts}")
+        r = await self._request(
+            f"elencoTratte/{id_regione}/{zoomlevel}/{quote(categorie)}/null/{ts}"
+        )
         if r.status_code == 204 or not r.text.strip():
             return []
         r.raise_for_status()
@@ -283,9 +334,23 @@ class ViaggiaTrenoClient:
         tratta_ab: int,
         tratta_ba: int,
         categorie: str = "ES*,IC,EXP,EC,EN,REG",
+        id_regione: int = 0,
     ) -> list[DettaglioTratta]:
-        """Treni presenti su un segmento (GET /dettagliTratta/0/{trattaAB}/{trattaBA}/{categorie}/null)."""
-        r = await self._request(f"dettagliTratta/0/{tratta_ab}/{tratta_ba}/{quote(categorie)}/null")
+        """Treni presenti su un segmento.
+
+        GET /dettagliTratta/{idRegione}/{trattaAB}/{trattaBA}/{categorie}/{catAV}
+
+        ``id_regione`` **deve essere lo stesso** usato nella chiamata a
+        :meth:`elenco_tratte` che ha prodotto ``tratta_ab``/``tratta_ba``: gli
+        ID non sono identificativi globali della rete ma sono numerati per
+        regione. Usare un ``id_regione`` diverso restituisce (senza errore)
+        i treni di un segmento fisicamente diverso, verificato dal vivo (es.
+        ``trattaAB=10, trattaBA=92`` con regione 0 è Pisa-Grosseto, con
+        regione 1 è Milano-Piacenza).
+        """
+        r = await self._request(
+            f"dettagliTratta/{id_regione}/{tratta_ab}/{tratta_ba}/{quote(categorie)}/null"
+        )
         if r.status_code == 204 or not r.text.strip():
             return []
         r.raise_for_status()

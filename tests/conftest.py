@@ -53,6 +53,8 @@ def make_mock_transport() -> httpx.MockTransport:
             return httpx.Response(200, text=load_sample_content("elencoStazioni"))
         elif "partenze" in path:
             return httpx.Response(200, text=load_sample_content("partenze"))
+        elif "dettaglioViaggio" in path:
+            return httpx.Response(200, text=load_sample_content("dettaglioViaggio"))
         elif "arrivi" in path:
             return httpx.Response(200, text=load_sample_content("arrivi"))
         elif "cercaNumeroTrenoTrenoAutocomplete" in path:

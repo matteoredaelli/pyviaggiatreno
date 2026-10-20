@@ -11,3 +11,9 @@ packages/*/src/*/_version.py
 
 # Virtual environments
 .venv
+
+# Dati runtime del crawler (non versionare il database locale)
+data/
+*.db
+*.db-wal
+*.db-shm

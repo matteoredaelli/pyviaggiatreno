@@ -7,17 +7,19 @@ requires-python = ">=3.12"
 package = false
 
 [tool.uv.workspace]
-members = ["packages/viaggiatreno", "packages/viaggiatreno_mcp"]
+members = ["packages/viaggiatreno", "packages/viaggiatreno_mcp", "packages/viaggiatreno_crawler"]
 
 [tool.uv.sources]
 viaggiatreno = { workspace = true }
 viaggiatreno-mcp = { workspace = true }
+viaggiatreno-crawler = { workspace = true }
 
 [dependency-groups]
 dev = [
     # Workspace members: installed editable so tests/pyright resolve them.
     "viaggiatreno",
     "viaggiatreno-mcp",
+    "viaggiatreno-crawler",
     "ruff",
     "pyright",
     "pytest>=9.1.1",

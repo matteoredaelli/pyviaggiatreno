@@ -116,7 +116,9 @@ class TrainBoardItem(ViaggiaTrenoBaseModel):
     compOrarioPartenza: str | None = Field(None, description="Orario di partenza formattato HH:MM")
     compOrarioArrivo: str | None = Field(None, description="Orario di arrivo formattato HH:MM")
     ritardo: int | None = Field(None, description="Ritardo in minuti")
-    compRitardo: list[str] | None = Field(None, description="Testo del ritardo multilingua")
+    compRitardo: list[str | None] | None = Field(
+        None, description="Testo del ritardo multilingua (elementi possono essere null, osservato dal vivo)"
+    )
     binarioEffettivoPartenzaDescrizione: str | None = Field(
         None, description="Binario effettivo di partenza"
     )
@@ -176,9 +178,11 @@ class TrainStatus(ViaggiaTrenoBaseModel):
     compOrarioPartenza: str | None = Field(None, description="Orario partenza HH:MM")
     compOrarioArrivo: str | None = Field(None, description="Orario arrivo HH:MM")
     ritardo: int | None = Field(None, description="Ritardo attuale in minuti")
-    compRitardo: list[str] | None = Field(None, description="Testo del ritardo multilingua")
-    compRitardoAndamento: list[str] | None = Field(
-        None, description="Descrizione estesa ritardo multilingua"
+    compRitardo: list[str | None] | None = Field(
+        None, description="Testo del ritardo multilingua (elementi possono essere null)"
+    )
+    compRitardoAndamento: list[str | None] | None = Field(
+        None, description="Descrizione estesa ritardo multilingua (elementi possono essere null)"
     )
     circolante: bool | None = Field(None, description="True se in viaggio")
     inStazione: bool | None = Field(None, description="True se fermo in stazione")
@@ -229,7 +233,9 @@ class TrattaCanvasItem(ViaggiaTrenoBaseModel):
     partenzaReale: bool = Field(..., description="True se la partenza è già avvenuta")
     arrivoReale: bool = Field(..., description="True se l'arrivo è già avvenuto")
     fermata: Fermata = Field(..., description="Dati dettagliati della fermata")
-    orientamento: list[str] | None = Field(None, description="Orientamento carrozze multilingua")
+    orientamento: list[str | None] | None = Field(
+        None, description="Orientamento carrozze multilingua (elementi possono essere null)"
+    )
     actualFermataType: int | None = Field(None, description="Codice stato fermata")
     trattaType: int | None = Field(None, description="Tipo di segmento")
     previousTrattaType: int | None = Field(None, description="Tipo di segmento precedente")

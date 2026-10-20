@@ -36,3 +36,19 @@ def register_departure_arrival_tools(mcp: FastMCP, client: ViaggiaTrenoClient) -
         data_ora: str | None = None,
     ) -> list[TrainBoardItem]:
         return await client.arrivi(codice_stazione, data_ora)
+
+    @mcp.tool(
+        name="treni_diretti_tra_stazioni",
+        description=(
+            "Restituisce i treni DIRETTI (senza cambi) tra due stazioni nella giornata corrente "
+            "(es. da 'S01700' Milano Centrale a 'S06421' Firenze Santa Maria Novella). "
+            "Non gestisce percorsi che richiedono un interscambio: in tal caso la lista può risultare vuota "
+            "anche se un collegamento con cambio esiste. Endpoint non documentato nelle fonti note, trovato "
+            "nello script ufficiale del sito ViaggiaTreno e verificato dal vivo."
+        ),
+    )
+    async def treni_diretti_tra_stazioni(
+        id_stazione_da: str,
+        id_stazione_a: str,
+    ) -> list[TrainBoardItem]:
+        return await client.dettaglio_viaggio(id_stazione_da, id_stazione_a)

@@ -70,6 +70,10 @@ if ct is not None and ct.status_code == 200 and ct.text.strip():
     get("andamentoTreno", f"andamentoTreno/{args}")
     get("tratteCanvas", f"tratteCanvas/{args}")
 
+# Dettaglio viaggio: treni diretti tra due stazioni (endpoint non documentato
+# in nessuna fonte nota, trovato in rest-jsapi)
+get("dettaglioViaggio", f"dettaglioViaggio/{STAZIONE}/S06421")
+
 # Tratte
 cat = "ES*,IC,EXP,EC,EN,REG"
 et = get("elencoTratte", f"elencoTratte/0/6/{cat}/null/{now_ms}")
