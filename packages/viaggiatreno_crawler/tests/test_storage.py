@@ -10,7 +10,7 @@ def test_connect_crea_schema(tmp_path):
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     assert {
-        "regioni", "stazioni", "treni", "fermate",
+        "regioni", "stops", "treni", "fermate",
         "tratte", "tratte_osservazioni", "avvistamenti_tratta",
     } <= tabelle
 
@@ -34,7 +34,7 @@ def test_upsert_treno_e_dedup(tmp_path):
 
 def test_fermate_e_kpi_binari(tmp_path):
     conn = storage.connect(tmp_path / "test.db")
-    storage.upsert_stazione(conn, "S01700", "MILANO CENTRALE", 45.48, 9.20, 1, "Milano")
+    storage.upsert_stop(conn, "S01700", "MILANO CENTRALE", 45.48, 9.20, regione_codice=1, citta="Milano")
     treno_id = storage.upsert_treno(
         conn, numero_treno=9611, cod_origine="S00219", data_partenza_treno=1791064800000,
         stato="arrivato", ritardo_finale=7,
@@ -43,7 +43,7 @@ def test_fermate_e_kpi_binari(tmp_path):
         conn,
         treno_id,
         [
-            {"stazione_codice": "S01700", "binario_effettivo": "11", "progressivo": 20},
+            {"stop_id": "S01700", "binario_effettivo": "11", "progressivo": 20},
         ],
     )
     binari = storage.binari_per_stazione(conn, "S01700")
@@ -51,7 +51,7 @@ def test_fermate_e_kpi_binari(tmp_path):
     assert binari[0]["binario_effettivo"] == "11"
 
     traffico = storage.stazioni_per_traffico(conn)
-    assert traffico[0]["stazione_codice"] == "S01700"
+    assert traffico[0]["stop_id"] == "S01700"
     assert traffico[0]["n_treni"] == 1
 
 
@@ -112,3 +112,29 @@ def test_avvistamenti_tratta_collega_treno_a_segmento(tmp_path):
     assert row["regione_codice"] == 1
     assert row["tratta_ab"] == 5
     assert row["tratta_ba"] == 87
+
+
+def test_importa_stops_gtfs_e_compatibile_e_fa_merge(tmp_path):
+    """La tabella `stops` deve accettare un vero file stops.txt del GTFS
+    Trenord (stessi nomi colonna) e fare merge con una stazione già nota
+    da ViaggiaTreno tramite lo stesso stop_id (vedi TRENORD.md)."""
+    conn = storage.connect(tmp_path / "test.db")
+    storage.upsert_stop(conn, "S01700", "MILANO CENTRALE", 45.486, 9.204, regione_codice=1, fonte="viaggiatreno")
+
+    csv_path = tmp_path / "stops.txt"
+    csv_path.write_text(
+        "stop_id,stop_name,stop_lat,stop_lon,stop_url\n"
+        "S01700,MILANO CENTRALE,45.486347,9.204528,https://trenord.it/stazioni/S01700\n"
+        "S01511,CARNATE USMATE,45.653072,9.375089,\n",
+        encoding="utf-8",
+    )
+    n = storage.importa_stops_gtfs(conn, csv_path)
+    assert n == 2
+
+    milano = conn.execute("SELECT * FROM stops WHERE stop_id = 'S01700'").fetchone()
+    assert milano["stop_url"] == "https://trenord.it/stazioni/S01700"
+    assert milano["fonte"] == "viaggiatreno+gtfs_trenord"  # merge delle due fonti
+    assert milano["regione_codice"] == 1  # preservato: il GTFS non lo fornisce, non viene sovrascritto a null
+
+    carnate = conn.execute("SELECT * FROM stops WHERE stop_id = 'S01511'").fetchone()
+    assert carnate["stop_name"] == "CARNATE USMATE"

@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 async def carica_dimensioni(
     conn: sqlite3.Connection, client: ViaggiaTrenoClient, regione: int
 ) -> None:
-    """Popola/aggiorna le tabelle di dimensione `regioni`/`stazioni`.
+    """Popola/aggiorna le tabelle di dimensione `regioni`/`stops`.
 
     Da chiamare una volta all'avvio (e periodicamente, es. una volta al
     giorno): i dati anagrafici delle stazioni cambiano raramente.
@@ -37,7 +37,7 @@ async def carica_dimensioni(
     stazioni italiane, ma solo le "stazioni principali" (comportamento
     documentato in VIAGGIATRENO.md, mai completamente verificato dal vivo).
     Se `regione=0` (monitoraggio nazionale in `scopri_treni`), qui iteriamo
-    su tutte le regioni 1-22 per avere una dimensione `stazioni` completa,
+    su tutte le regioni 1-22 per avere una dimensione `stops` completa,
     altrimenti molte fermate di `andamento_treno` fuori regione resterebbero
     senza nome/coordinate nei JOIN.
     """
@@ -49,12 +49,12 @@ async def carica_dimensioni(
     for cod_regione in regioni_da_caricare:
         stazioni = await client.elenco_stazioni(cod_regione)
         for s in stazioni:
-            storage.upsert_stazione(
+            storage.upsert_stop(
                 conn,
-                codice=s.codiceStazione,
-                nome=s.localita.nomeLungo if s.localita else None,
-                lat=s.lat,
-                lon=s.lon,
+                stop_id=s.codiceStazione,
+                stop_name=s.localita.nomeLungo if s.localita else None,
+                stop_lat=s.lat,
+                stop_lon=s.lon,
                 regione_codice=s.codReg,
                 citta=s.nomeCitta,
             )
@@ -138,7 +138,7 @@ def _stato_da_train_status(status) -> str:  # noqa: ANN001 - TrainStatus, evitar
 def _fermate_per_storage(status) -> list[dict]:  # noqa: ANN001
     return [
         {
-            "stazione_codice": f.id,
+            "stop_id": f.id,
             "progressivo": f.progressivo,
             "tipo_fermata": f.tipoFermata,
             "orario_programmato": f.programmata,

@@ -1,15 +1,31 @@
 """Persistenza SQLite per il crawler: schema, upsert e query di aggregazione.
 
-Schema a stella: `regioni`/`stazioni` sono dimensioni (poco variabili nel
+Schema a stella: `regioni`/`stops` sono dimensioni (poco variabili nel
 tempo), `treni`/`fermate` sono fatti che crescono ogni giorno. `fermate` è la
 tabella chiave per i KPI a livello di stazione/binario (quali stazioni hanno
 più traffico, quali binari usa più spesso una stazione): non è ottenibile da
 `elencoTratte`/`dettagliTratta` (solo origine/destinazione), serve il
 dettaglio completo di `andamentoTreno`.
+
+Compatibilità con il GTFS Trenord (vedi TRENORD.md): la tabella `stops` usa
+la stessa chiave e gli stessi nomi di colonna di `stops.txt` (`stop_id`,
+`stop_name`, `stop_lat`, `stop_lon`, `stop_url`), perché i codici stazione
+ViaggiaTreno (`S01700`) sono identici agli `stop_id` del GTFS Trenord: puoi
+importare `stops.txt` direttamente in questa tabella con `importa_stops_gtfs`
+e fare join tra dati real-time e pianificazione statica senza conversioni.
+
+`treni`/`fermate` **non** sono invece traducibili 1:1 in `trips.txt`/
+`stop_times.txt`: quelle tabelle GTFS descrivono l'orario pianificato teorico
+(valido per una stagione), mentre `treni`/`fermate` sono osservazioni
+real-time di istanze specifiche (un treno, un giorno, un ritardo misurato).
+Sono entità concettualmente diverse; GTFS non ha un concetto di "ritardo
+osservato". Un collegamento (`route_id`/`trip_id`) è possibile come fase
+futura di correlazione, non come semplice rinomina di colonne.
 """
 
 from __future__ import annotations
 
+import csv
 import sqlite3
 import time
 from collections.abc import Iterable
@@ -24,13 +40,19 @@ CREATE TABLE IF NOT EXISTS regioni (
     nome TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS stazioni (
-    codice TEXT PRIMARY KEY,
-    nome TEXT,
-    lat REAL,
-    lon REAL,
+-- Dimensione stazioni, compatibile con stops.txt del GTFS Trenord (stessa
+-- chiave stop_id = codice stazione ViaggiaTreno). Campi extra non-GTFS
+-- (regione_codice, citta, fonte) aggiunti in coda, non interferiscono con
+-- un import diretto del CSV GTFS.
+CREATE TABLE IF NOT EXISTS stops (
+    stop_id TEXT PRIMARY KEY,
+    stop_name TEXT,
+    stop_lat REAL,
+    stop_lon REAL,
+    stop_url TEXT,
     regione_codice INTEGER REFERENCES regioni(codice),
     citta TEXT,
+    fonte TEXT NOT NULL DEFAULT 'viaggiatreno',
     ultimo_aggiornamento INTEGER
 );
 
@@ -51,6 +73,8 @@ CREATE TABLE IF NOT EXISTS treni (
     primo_avvistamento INTEGER NOT NULL,
     ultimo_aggiornamento INTEGER NOT NULL,
     raw_json TEXT,
+    route_id TEXT,  -- riservato per futura correlazione con GTFS trips.txt
+    trip_id TEXT,   -- riservato per futura correlazione con GTFS trips.txt
     UNIQUE (numero_treno, cod_origine, data_partenza_treno)
 );
 
@@ -59,7 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_treni_stato ON treni(stato);
 CREATE TABLE IF NOT EXISTS fermate (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     treno_id INTEGER NOT NULL REFERENCES treni(id) ON DELETE CASCADE,
-    stazione_codice TEXT NOT NULL REFERENCES stazioni(codice),
+    stop_id TEXT NOT NULL REFERENCES stops(stop_id),
     progressivo INTEGER,
     tipo_fermata TEXT,
     orario_programmato INTEGER,
@@ -70,7 +94,7 @@ CREATE TABLE IF NOT EXISTS fermate (
     actual_fermata_type INTEGER
 );
 
-CREATE INDEX IF NOT EXISTS idx_fermate_stazione ON fermate(stazione_codice);
+CREATE INDEX IF NOT EXISTS idx_fermate_stop ON fermate(stop_id);
 CREATE INDEX IF NOT EXISTS idx_fermate_treno ON fermate(treno_id);
 
 -- Segmenti della rete (elencoTratte). Chiave composita perché trattaAB/trattaBA
@@ -148,29 +172,61 @@ def upsert_regione(conn: sqlite3.Connection, codice: int, nome: str) -> None:
     )
 
 
-def upsert_stazione(
+def upsert_stop(
     conn: sqlite3.Connection,
-    codice: str,
-    nome: str | None,
-    lat: float | None,
-    lon: float | None,
-    regione_codice: int | None,
-    citta: str | None,
+    stop_id: str,
+    stop_name: str | None,
+    stop_lat: float | None,
+    stop_lon: float | None,
+    regione_codice: int | None = None,
+    citta: str | None = None,
+    stop_url: str | None = None,
+    fonte: str = "viaggiatreno",
 ) -> None:
+    """Inserisce/aggiorna una stazione nella tabella `stops` (compatibile GTFS stops.txt)."""
     conn.execute(
         """
-        INSERT INTO stazioni (codice, nome, lat, lon, regione_codice, citta, ultimo_aggiornamento)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(codice) DO UPDATE SET
-            nome = excluded.nome,
-            lat = excluded.lat,
-            lon = excluded.lon,
-            regione_codice = excluded.regione_codice,
-            citta = excluded.citta,
+        INSERT INTO stops (stop_id, stop_name, stop_lat, stop_lon, stop_url, regione_codice, citta, fonte, ultimo_aggiornamento)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(stop_id) DO UPDATE SET
+            stop_name = excluded.stop_name,
+            stop_lat = excluded.stop_lat,
+            stop_lon = excluded.stop_lon,
+            stop_url = COALESCE(excluded.stop_url, stops.stop_url),
+            regione_codice = COALESCE(excluded.regione_codice, stops.regione_codice),
+            citta = COALESCE(excluded.citta, stops.citta),
+            fonte = CASE WHEN stops.fonte != excluded.fonte THEN 'viaggiatreno+gtfs_trenord' ELSE excluded.fonte END,
             ultimo_aggiornamento = excluded.ultimo_aggiornamento
         """,
-        (codice, nome, lat, lon, regione_codice, citta, int(time.time() * 1000)),
+        (stop_id, stop_name, stop_lat, stop_lon, stop_url, regione_codice, citta, fonte, int(time.time() * 1000)),
     )
+
+
+def importa_stops_gtfs(conn: sqlite3.Connection, csv_path: str | Path) -> int:
+    """Importa un file `stops.txt` del GTFS Trenord direttamente nella tabella `stops`.
+
+    Poiché gli `stop_id` del GTFS Trenord coincidono con i codici stazione
+    ViaggiaTreno (vedi TRENORD.md), le righe si fondono (upsert) con quelle
+    già presenti: una stazione già vista da ViaggiaTreno viene aggiornata
+    con i campi del GTFS (es. `stop_url`, che ViaggiaTreno non fornisce),
+    mantenendo `fonte='gtfs_trenord'` per distinguerne la provenienza.
+    Restituisce il numero di righe importate.
+    """
+    n = 0
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            upsert_stop(
+                conn,
+                stop_id=row["stop_id"],
+                stop_name=row.get("stop_name"),
+                stop_lat=float(row["stop_lat"]) if row.get("stop_lat") else None,
+                stop_lon=float(row["stop_lon"]) if row.get("stop_lon") else None,
+                stop_url=row.get("stop_url"),
+                fonte="gtfs_trenord",
+            )
+            n += 1
+    conn.commit()
+    return n
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +391,7 @@ def sostituisci_fermate(conn: sqlite3.Connection, treno_id: int, fermate: Iterab
     conn.executemany(
         """
         INSERT INTO fermate (
-            treno_id, stazione_codice, progressivo, tipo_fermata,
+            treno_id, stop_id, progressivo, tipo_fermata,
             orario_programmato, orario_effettivo, ritardo,
             binario_programmato, binario_effettivo, actual_fermata_type
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -343,7 +399,7 @@ def sostituisci_fermate(conn: sqlite3.Connection, treno_id: int, fermate: Iterab
         [
             (
                 treno_id,
-                f["stazione_codice"],
+                f["stop_id"],
                 f.get("progressivo"),
                 f.get("tipo_fermata"),
                 f.get("orario_programmato"),
@@ -402,17 +458,17 @@ def ritardi_arrivati(conn: sqlite3.Connection, data_partenza_treno: int) -> list
     return [int(r["ritardo_finale"]) for r in rows]
 
 
-def binari_per_stazione(conn: sqlite3.Connection, stazione_codice: str) -> list[sqlite3.Row]:
+def binari_per_stazione(conn: sqlite3.Connection, stop_id: str) -> list[sqlite3.Row]:
     """Binari effettivi osservati per una stazione, ordinati per frequenza."""
     return conn.execute(
         """
         SELECT binario_effettivo, COUNT(*) AS n
         FROM fermate
-        WHERE stazione_codice = ? AND binario_effettivo IS NOT NULL
+        WHERE stop_id = ? AND binario_effettivo IS NOT NULL
         GROUP BY binario_effettivo
         ORDER BY n DESC
         """,
-        (stazione_codice,),
+        (stop_id,),
     ).fetchall()
 
 
@@ -420,10 +476,10 @@ def stazioni_per_traffico(conn: sqlite3.Connection, limit: int = 20) -> list[sql
     """Stazioni con più treni distinti transitati (per traffico osservato)."""
     return conn.execute(
         """
-        SELECT f.stazione_codice, s.nome, COUNT(DISTINCT f.treno_id) AS n_treni
+        SELECT f.stop_id, s.stop_name, COUNT(DISTINCT f.treno_id) AS n_treni
         FROM fermate f
-        LEFT JOIN stazioni s ON s.codice = f.stazione_codice
-        GROUP BY f.stazione_codice
+        LEFT JOIN stops s ON s.stop_id = f.stop_id
+        GROUP BY f.stop_id
         ORDER BY n_treni DESC
         LIMIT ?
         """,
