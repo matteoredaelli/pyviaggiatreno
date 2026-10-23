@@ -7,6 +7,10 @@ che l'API non fornisce esplicitamente. Sono stime, non dati certi: ogni
 funzione documenta le proprie assunzioni e i limiti noti.
 """
 
-from viaggiatreno.heuristics.rotazione import Predecessore, trova_predecessore, verifica_predecessore
+from viaggiatreno.heuristics.rotazione import (
+    Predecessore,
+    trova_predecessore,
+    verifica_predecessore,
+)
 
 __all__ = ["Predecessore", "trova_predecessore", "verifica_predecessore"]

@@ -117,7 +117,8 @@ class TrainBoardItem(ViaggiaTrenoBaseModel):
     compOrarioArrivo: str | None = Field(None, description="Orario di arrivo formattato HH:MM")
     ritardo: int | None = Field(None, description="Ritardo in minuti")
     compRitardo: list[str | None] | None = Field(
-        None, description="Testo del ritardo multilingua (elementi possono essere null, osservato dal vivo)"
+        None,
+        description="Testo del ritardo multilingua (elementi possono essere null, osservato dal vivo)",
     )
     binarioEffettivoPartenzaDescrizione: str | None = Field(
         None, description="Binario effettivo di partenza"

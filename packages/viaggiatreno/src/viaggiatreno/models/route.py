@@ -20,10 +20,12 @@ class TrattaSegment(ViaggiaTrenoBaseModel):
     nodoA: str = Field(..., description="Codice nodo o stazione estremo A")
     nodoB: str = Field(..., description="Codice nodo o stazione estremo B")
     trattaAB: int = Field(
-        ..., description="Identificativo numerico del segmento in direzione A -> B (scoped per regione)"
+        ...,
+        description="Identificativo numerico del segmento in direzione A -> B (scoped per regione)",
     )
     trattaBA: int = Field(
-        ..., description="Identificativo numerico del segmento in direzione B -> A (scoped per regione)"
+        ...,
+        description="Identificativo numerico del segmento in direzione B -> A (scoped per regione)",
     )
     parentAB: int | None = Field(None, description="ID del segmento padre A -> B")
     parentBA: int | None = Field(None, description="ID del segmento padre B -> A")

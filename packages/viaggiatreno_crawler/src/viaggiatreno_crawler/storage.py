@@ -198,7 +198,17 @@ def upsert_stop(
             fonte = CASE WHEN stops.fonte != excluded.fonte THEN 'viaggiatreno+gtfs_trenord' ELSE excluded.fonte END,
             ultimo_aggiornamento = excluded.ultimo_aggiornamento
         """,
-        (stop_id, stop_name, stop_lat, stop_lon, stop_url, regione_codice, citta, fonte, int(time.time() * 1000)),
+        (
+            stop_id,
+            stop_name,
+            stop_lat,
+            stop_lon,
+            stop_url,
+            regione_codice,
+            citta,
+            fonte,
+            int(time.time() * 1000),
+        ),
     )
 
 
@@ -385,7 +395,9 @@ def registra_204(conn: sqlite3.Connection, treno_id: int, soglia: int = 5) -> No
     )
 
 
-def sostituisci_fermate(conn: sqlite3.Connection, treno_id: int, fermate: Iterable[dict[str, Any]]) -> None:
+def sostituisci_fermate(
+    conn: sqlite3.Connection, treno_id: int, fermate: Iterable[dict[str, Any]]
+) -> None:
     """Rimpiazza tutte le fermate note di un treno con quelle fornite (da andamentoTreno)."""
     conn.execute("DELETE FROM fermate WHERE treno_id = ?", (treno_id,))
     conn.executemany(

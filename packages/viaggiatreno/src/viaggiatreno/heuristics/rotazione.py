@@ -19,9 +19,26 @@ confermando che l'euristica per tempo e' affidabile per questa linea.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Protocol
 
-from viaggiatreno.api.client import ViaggiaTrenoClient
 from viaggiatreno.models.train import TrainBoardItem, TrainStatus
+
+
+class _ClienteCompatibile(Protocol):
+    """Interfaccia minima richiesta: qualunque oggetto con questi due metodi
+    (incluso `ViaggiaTrenoClient`, o uno stub di test) funziona, senza bisogno
+    di importare/sottoclassare il client concreto. I nomi dei parametri
+    devono combaciare con quelli di `ViaggiaTrenoClient` (richiesto da
+    pyright per la compatibilita' strutturale dei Protocol)."""
+
+    async def andamento_treno(
+        self, codice_stazione_origine: str, numero_treno: int | str, data_partenza: int | str
+    ) -> TrainStatus | None: ...
+
+    async def arrivi(
+        self, codice_stazione: str, data_ora: datetime | str | None = None
+    ) -> list[TrainBoardItem]: ...
 
 
 @dataclass(frozen=True)
@@ -41,7 +58,7 @@ class Predecessore:
 
 
 async def _candidati_predecessori(
-    client: ViaggiaTrenoClient, stazione: str, categoria: str | None, codice_cliente: int | None
+    client: _ClienteCompatibile, stazione: str, categoria: str | None, codice_cliente: int | None
 ) -> list[TrainBoardItem]:
     arrivi = await client.arrivi(stazione)
     return [
@@ -54,7 +71,7 @@ async def _candidati_predecessori(
 
 
 async def trova_predecessore(
-    client: ViaggiaTrenoClient,
+    client: _ClienteCompatibile,
     cod_origine: str,
     numero_treno: int,
     data_partenza: int | str,
@@ -81,8 +98,14 @@ async def trova_predecessore(
     per stazioni capolinea di una singola linea, dove non serve e un vincolo
     di destinazione esatta potrebbe escludere varianti di nome stazione.
     """
-    status: TrainStatus | None = await client.andamento_treno(cod_origine, numero_treno, data_partenza)
-    if status is None or status.orarioPartenza is None or not isinstance(status.orarioPartenza, int):
+    status: TrainStatus | None = await client.andamento_treno(
+        cod_origine, numero_treno, data_partenza
+    )
+    if (
+        status is None
+        or status.orarioPartenza is None
+        or not isinstance(status.orarioPartenza, int)
+    ):
         return None
 
     stazione_origine = status.idOrigine or cod_origine
@@ -90,13 +113,21 @@ async def trova_predecessore(
         client, stazione_origine, status.categoria, status.codiceCliente
     )
 
+    orario_partenza = status.orarioPartenza
     finestra_ms = finestra_minuti * 60 * 1000
+
+    # orarioArrivo e' int|str|None (stringa solo nella risposta "sporca" di
+    # dettagliTratta, vedi VIAGGIATRENO.md): qui scartiamo le stringhe, non
+    # possiamo fare aritmetica temporale su una data senza ora.
+    candidati_con_orario: list[tuple[TrainBoardItem, int]] = [
+        (t, t.orarioArrivo) for t in candidati if isinstance(t.orarioArrivo, int)
+    ]
+
     migliori = [
-        t
-        for t in candidati
-        if t.orarioArrivo is not None
-        and t.orarioArrivo < status.orarioPartenza
-        and (status.orarioPartenza - t.orarioArrivo) <= finestra_ms
+        (t, orario_arrivo)
+        for t, orario_arrivo in candidati_con_orario
+        if orario_arrivo < orario_partenza
+        and (orario_partenza - orario_arrivo) <= finestra_ms
         and t.numeroTreno != numero_treno
         and (
             not richiedi_stessa_linea
@@ -110,16 +141,16 @@ async def trova_predecessore(
     if not migliori:
         return None
 
-    predecessore = max(migliori, key=lambda t: t.orarioArrivo or 0)
-    turnaround_min = (status.orarioPartenza - (predecessore.orarioArrivo or 0)) / 60000
+    predecessore, orario_arrivo_predecessore = max(migliori, key=lambda item: item[1])
+    turnaround_min = (orario_partenza - orario_arrivo_predecessore) / 60000
 
     return Predecessore(
         treno_numero=numero_treno,
         treno_origine=status.origine,
-        treno_orario_partenza_programmato=status.orarioPartenza,
+        treno_orario_partenza_programmato=orario_partenza,
         predecessore_numero=predecessore.numeroTreno,
         predecessore_origine=predecessore.origine,
-        predecessore_orario_arrivo_programmato=predecessore.orarioArrivo,
+        predecessore_orario_arrivo_programmato=orario_arrivo_predecessore,
         minuti_turnaround=turnaround_min,
         predecessore_ritardo_attuale=predecessore.ritardo,
         predecessore_arrivato=predecessore.arrivato,
@@ -128,7 +159,7 @@ async def trova_predecessore(
 
 
 async def verifica_predecessore(
-    client: ViaggiaTrenoClient,
+    client: _ClienteCompatibile,
     cod_origine: str,
     numero_treno: int,
     data_partenza: int | str,

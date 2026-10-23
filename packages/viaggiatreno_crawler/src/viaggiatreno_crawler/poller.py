@@ -123,11 +123,15 @@ async def scopri_treni(
                 )
                 n_visti += 1
     conn.commit()
-    logger.info("Scoperta: %d segmenti occupati, %d treni visti", sum(1 for s in segmenti if s.occupata), n_visti)
+    logger.info(
+        "Scoperta: %d segmenti occupati, %d treni visti",
+        sum(1 for s in segmenti if s.occupata),
+        n_visti,
+    )
     return n_visti
 
 
-def _stato_da_train_status(status) -> str:  # noqa: ANN001 - TrainStatus, evitare import ciclico in type hints
+def _stato_da_train_status(status) -> str:
     if status.arrivato:
         return "arrivato"
     if status.tipoTreno == "ST":
@@ -135,7 +139,7 @@ def _stato_da_train_status(status) -> str:  # noqa: ANN001 - TrainStatus, evitar
     return "in_corso"
 
 
-def _fermate_per_storage(status) -> list[dict]:  # noqa: ANN001
+def _fermate_per_storage(status) -> list[dict]:
     return [
         {
             "stop_id": f.id,
@@ -174,7 +178,9 @@ async def verifica_treni_attivi(
         ritardo_finale = None
         if stato == "arrivato" and status.fermate:
             ultima = status.fermate[-1]
-            ritardo_finale = ultima.ritardoArrivo if ultima.ritardoArrivo is not None else ultima.ritardo
+            ritardo_finale = (
+                ultima.ritardoArrivo if ultima.ritardoArrivo is not None else ultima.ritardo
+            )
 
         storage.upsert_treno(
             conn,
@@ -199,7 +205,9 @@ async def verifica_treni_attivi(
     conn.commit()
 
 
-async def loop_scoperta(conn: sqlite3.Connection, client: ViaggiaTrenoClient, config: CrawlerConfig) -> None:
+async def loop_scoperta(
+    conn: sqlite3.Connection, client: ViaggiaTrenoClient, config: CrawlerConfig
+) -> None:
     while True:
         try:
             await scopri_treni(conn, client, config)
@@ -208,7 +216,9 @@ async def loop_scoperta(conn: sqlite3.Connection, client: ViaggiaTrenoClient, co
         await asyncio.sleep(config.intervallo_scoperta_sec)
 
 
-async def loop_verifica(conn: sqlite3.Connection, client: ViaggiaTrenoClient, config: CrawlerConfig) -> None:
+async def loop_verifica(
+    conn: sqlite3.Connection, client: ViaggiaTrenoClient, config: CrawlerConfig
+) -> None:
     while True:
         try:
             await verifica_treni_attivi(conn, client, config)

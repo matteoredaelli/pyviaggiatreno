@@ -220,9 +220,7 @@ class ViaggiaTrenoClient:
         ``soluzioniViaggioNew`` (ora 404) per il solo caso dei treni diretti:
         non gestisce percorsi con interscambio.
         """
-        r = await self._request(
-            f"dettaglioViaggio/{quote(id_stazione_da)}/{quote(id_stazione_a)}"
-        )
+        r = await self._request(f"dettaglioViaggio/{quote(id_stazione_da)}/{quote(id_stazione_a)}")
         if r.status_code == 204 or not r.text.strip():
             return []
         r.raise_for_status()
