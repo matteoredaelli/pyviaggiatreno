@@ -15,6 +15,7 @@ from viaggiatreno.api.parsers import (
     parse_station_nts_autocomplete,
     parse_train_autocomplete,
 )
+from viaggiatreno.heuristics import Predecessore, trova_predecessore, verifica_predecessore
 from viaggiatreno.models.common import (
     CLIENT_COMPANIES,
     REGIONS,
@@ -60,6 +61,7 @@ __all__ = [
     "Fermata",
     "InfomobilitaNews",
     "InfomobilitaNewsHeadline",
+    "Predecessore",
     "StationAutocompleteItem",
     "StationDetail",
     "StationNTSAutocompleteItem",
@@ -82,4 +84,6 @@ __all__ = [
     "parse_station_autocomplete",
     "parse_station_nts_autocomplete",
     "parse_train_autocomplete",
+    "trova_predecessore",
+    "verifica_predecessore",
 ]

@@ -64,6 +64,11 @@ async def test_tools_trains(mock_server: FastMCP):
     )
     assert not canvas.is_error
 
+    # Predecessore treno (euristica): non deve fallire anche se l'arrivo/partenza
+    # mock non e' quella di una vera linea a spola (ci si aspetta risultato null)
+    predecessore = await mock_server.call_tool("predecessore_treno", {"numero_treno": 9611})
+    assert not predecessore.is_error
+
 
 @pytest.mark.asyncio
 async def test_tools_routes(mock_server: FastMCP):
