@@ -145,6 +145,14 @@ CREATE TABLE IF NOT EXISTS avvistamenti_tratta (
 );
 
 CREATE INDEX IF NOT EXISTS idx_avvistamenti_tratta_treno ON avvistamenti_tratta(treno_id);
+
+-- Stato del crawler (chiave/valore): timestamp ultimo caricamento dimensioni
+-- e checkpoint di avanzamento dei cicli di scoperta, per riprendere dopo un
+-- riavvio da dove ci si era fermati invece di ricominciare da capo.
+CREATE TABLE IF NOT EXISTS crawler_stato (
+    chiave TEXT PRIMARY KEY,
+    valore TEXT
+);
 """
 
 
@@ -157,6 +165,26 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     conn.commit()
     return conn
+
+
+# ---------------------------------------------------------------------------
+# Stato del crawler (chiave/valore): checkpoint e timestamp
+# ---------------------------------------------------------------------------
+
+
+def get_stato(conn: sqlite3.Connection, chiave: str) -> str | None:
+    """Legge un valore di stato del crawler, None se mai impostato."""
+    row = conn.execute("SELECT valore FROM crawler_stato WHERE chiave = ?", (chiave,)).fetchone()
+    return None if row is None else row["valore"]
+
+
+def set_stato(conn: sqlite3.Connection, chiave: str, valore: str) -> None:
+    """Scrive (upsert) un valore di stato del crawler."""
+    conn.execute(
+        "INSERT INTO crawler_stato (chiave, valore) VALUES (?, ?) "
+        "ON CONFLICT(chiave) DO UPDATE SET valore = excluded.valore",
+        (chiave, valore),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +457,97 @@ def sostituisci_fermate(
 def treni_attivi(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Treni ancora da verificare (non arrivati/soppressi/non_disponibile)."""
     return conn.execute("SELECT * FROM treni WHERE stato = 'in_corso'").fetchall()
+
+
+def chiudi_treni_obsoleti(conn: sqlite3.Connection, mezzanotte_oggi_ms: int) -> int:
+    """Marca 'non_disponibile' i treni ancora 'in_corso' di giornate passate.
+
+    Da chiamare all'avvio: se il crawler viene fermato mentre dei treni sono
+    `in_corso`, al riavvio (magari il giorno dopo) resterebbero attivi e la
+    verifica sprecherebbe chiamate su `andamento_treno` con una
+    `data_partenza_treno` ormai vecchia (che risponde 204) finché non
+    collezionano abbastanza 204 per chiudersi da soli. Questa UPDATE li chiude
+    subito, senza chiamate di rete. Restituisce il numero di treni chiusi.
+    """
+    cur = conn.execute(
+        "UPDATE treni SET stato = 'non_disponibile', ultimo_aggiornamento = ? "
+        "WHERE stato = 'in_corso' AND data_partenza_treno < ?",
+        (int(time.time() * 1000), mezzanotte_oggi_ms),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def conta_treni_attivi(conn: sqlite3.Connection) -> int:
+    """Numero di treni ancora in stato 'in_corso'."""
+    row = conn.execute("SELECT COUNT(*) AS n FROM treni WHERE stato = 'in_corso'").fetchone()
+    return int(row["n"])
+
+
+def treni_attivi_da(conn: sqlite3.Connection, dopo_id: int, limit: int) -> list[sqlite3.Row]:
+    """Treni attivi con id > dopo_id, ordinati per id, al massimo `limit`.
+
+    Usato dalla verifica con cap per giro: scorre gli attivi a finestre
+    (ordinate per id) riprendendo dall'ultimo id controllato, così ogni giro
+    resta sotto un tetto di chiamate e nel tempo copre comunque tutti i treni.
+    Con `dopo_id=0` riparte dall'inizio (per ciclare quando si arriva in fondo).
+    """
+    return conn.execute(
+        "SELECT * FROM treni WHERE stato = 'in_corso' AND id > ? ORDER BY id LIMIT ?",
+        (dopo_id, limit),
+    ).fetchall()
+
+
+def numeri_treno_noti(conn: sqlite3.Connection) -> list[int]:
+    """Numeri treno distinti già osservati, per guidare lo scan-range.
+
+    Lo scan sonda una finestra attorno a questi numeri (non tra coppie):
+    i dati dal vivo mostrano che la numerazione è densa *localmente*
+    (grappoli), non uniformemente distribuita nel range globale.
+    """
+    rows = conn.execute("SELECT DISTINCT numero_treno FROM treni ORDER BY numero_treno").fetchall()
+    return [int(r["numero_treno"]) for r in rows]
+
+
+def stazioni_da_sondare(conn: sqlite3.Connection, regione_codice: int, limit: int) -> list[str]:
+    """Stop_id da interrogare con partenze/arrivi, i più trafficati prima.
+
+    Ordina per numero di fermate già osservate (proxy del traffico): le
+    stazioni più trafficate hanno più probabilità di far scoprire treni non
+    ancora noti. Le stazioni mai osservate (0 fermate) vengono comunque
+    incluse in coda, così all'avvio — quando `fermate` è vuota — si parte
+    comunque da un sottoinsieme della dimensione `stops`.
+
+    Con `regione_codice=0` considera tutte le stazioni; altrimenti filtra per
+    regione (ma include anche le stazioni senza regione nota, es. importate
+    dal GTFS, per non perderle).
+    """
+    if regione_codice == 0:
+        rows = conn.execute(
+            """
+            SELECT s.stop_id, COUNT(f.id) AS n
+            FROM stops s
+            LEFT JOIN fermate f ON f.stop_id = s.stop_id
+            GROUP BY s.stop_id
+            ORDER BY n DESC, s.stop_id
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT s.stop_id, COUNT(f.id) AS n
+            FROM stops s
+            LEFT JOIN fermate f ON f.stop_id = s.stop_id
+            WHERE s.regione_codice = ? OR s.regione_codice IS NULL
+            GROUP BY s.stop_id
+            ORDER BY n DESC, s.stop_id
+            LIMIT ?
+            """,
+            (regione_codice, limit),
+        ).fetchall()
+    return [str(r["stop_id"]) for r in rows]
 
 
 # ---------------------------------------------------------------------------

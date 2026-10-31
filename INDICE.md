@@ -195,15 +195,26 @@ Questo repository contiene documentazione **completa e integrata** su:
 
 ```
 .
+├── README.md                    (Overview del monorepo + quick start)
+├── AGENTS.md                    (Guida sintetica per agenti AI/contributori)
+├── RELEASE.md                   (Processo di release su PyPI)
 ├── VIAGGIATRENO.md              (API rest, 50+ endpoint, 3k righe)
 ├── TRENORD.md                   (GTFS, 7 file, pianificazione, 400 righe)
 ├── ENTITA.md                    (Schema ER, 27 entità, 600+ righe)
 ├── GLOSSARIO.md                 (Terminologia, best practices, 700+ righe)
+├── COPERTURA_GEOGRAFICA.md      (Copertura GTFS Trenord vs API ViaggiaTreno)
 ├── INDICE.md (questo file)      (Guida navigazione, 400+ righe)
-├── /probe                        (Script probe dati live - opzionale)
-│   └── probe_viaggiatreno.py    (Python script for API testing)
-└── /schemas                      (JSON Schema - opzionale)
-    └── arrivals.schema.json      (Validazione risposte API)
+├── Makefile                     (lint / test / build / publish)
+├── pyproject.toml               (Workspace uv, 3 pacchetti)
+├── probe_viaggiatreno.py        (Script probe dati live - opzionale)
+├── data/
+│   └── treni.db                 (DB SQLite prodotto dal crawler)
+├── samples/                     (Risposte API di esempio)
+├── tests/                       (Test del workspace)
+└── packages/
+    ├── viaggiatreno/            (Libreria client HTTP async - core)
+    ├── viaggiatreno_mcp/        (Server MCP)
+    └── viaggiatreno_crawler/    (Poller → SQLite)
 ```
 
 ---

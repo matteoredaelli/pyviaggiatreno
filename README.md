@@ -1,8 +1,20 @@
 # pyviaggiatreno
 
-Python library + MCP server for ViaggiaTreno APIs (Italian Railways)
+Monorepo Python (workspace `uv`) basato sulle API non ufficiali di
+[ViaggiaTreno](http://www.viaggiatreno.it) (treni in Italia): libreria client,
+server MCP e crawler che salva dati storici in SQLite.
 
 ## 📦 Packages
+
+| Package | Ruolo | PyPI |
+|---------|-------|------|
+| [`viaggiatreno`](./packages/viaggiatreno) | Libreria client HTTP async (core, nessuna dipendenza MCP) | `viaggiatreno` |
+| [`viaggiatreno-mcp`](./packages/viaggiatreno_mcp) | Server MCP per agenti AI (Claude, Kiro, Cursor, …) | `viaggiatreno-mcp` |
+| [`viaggiatreno-crawler`](./packages/viaggiatreno_crawler) | Poller che interroga le API nel tempo e salva in SQLite | `viaggiatreno-crawler` |
+
+> Non esiste un pacchetto CLI generico separato: gli unici comandi da riga di
+> comando sono gli entry point `viaggiatreno-mcp` (server MCP) e
+> `viaggiatreno-crawler` (crawler).
 
 ### `viaggiatreno` - Core Library ⭐
 
@@ -56,6 +68,32 @@ Configure in Claude, pi, or other AI tools to use these tools:
 - `stato_treno` - Train status & full route
 - E altri...
 
+### `viaggiatreno-crawler` - Crawler → SQLite
+
+Poller che usa la libreria core per raccogliere nel tempo dati storici sui
+treni (numeri, ritardi, binari, fermate) in un database SQLite locale — utile
+per KPI che le API ViaggiaTreno non espongono (sono solo "stato attuale", non
+storiche).
+
+```bash
+pip install viaggiatreno-crawler
+```
+
+**Avvio**:
+```bash
+viaggiatreno-crawler run \
+  --regione 1 \
+  --categorie "ES*,IC,EXP,EC,EN,REG" \
+  --db-path data/treni.db \
+  --intervallo-scoperta 300 \
+  --intervallo-verifica 900
+```
+
+Flusso: scoperta treni in circolazione (`elenco_tratte`/`dettagli_tratta`) →
+arricchimento percorso (`andamento_treno`) → upsert in SQLite. Lo schema della
+tabella `stops` è compatibile con `stops.txt` del GTFS Trenord. Dettagli in
+[packages/viaggiatreno_crawler/README.md](./packages/viaggiatreno_crawler/README.md).
+
 ---
 
 ## ✨ Features
@@ -96,6 +134,9 @@ pip install viaggiatreno
 
 # With MCP server
 pip install viaggiatreno-mcp
+
+# With crawler (SQLite poller)
+pip install viaggiatreno-crawler
 ```
 
 ### Using the Library
@@ -160,19 +201,30 @@ Dettagli completi in [packages/viaggiatreno_mcp/README.md](./packages/viaggiatre
 
 ## 🛠️ Development
 
+Il repo è un workspace `uv` con 3 pacchetti sotto `packages/`.
+
 ```bash
 # Clone repo
 git clone https://github.com/matteoredaelli/pyviaggiatreno.git
 cd pyviaggiatreno
 
-# Install dev dependencies
-uv pip install -e ".[dev]"
+# Install workspace + dev deps (editable)
+uv sync
+
+# Lint + type check + format check
+make lint          # ruff format --check + ruff check + pyright
 
 # Run tests
-pytest
+make pytest        # oppure: uv run pytest
 
 # Run MCP server
-python -m viaggiatreno_mcp.server
+make run           # oppure: uv run viaggiatreno-mcp
+
+# Run crawler
+uv run viaggiatreno-crawler run --db-path data/treni.db
+
+# Build all packages
+make build         # oppure: uv build
 ```
 
 ---
@@ -253,6 +305,6 @@ git push origin v0.2.0
 # 3. GitHub Actions automatically publishes both packages
 ```
 
-Both `viaggiatreno` and `viaggiatreno-mcp` will be published to PyPI with the same version.
+Both `viaggiatreno` and `viaggiatreno-mcp` (e `viaggiatreno-crawler`) will be published to PyPI with the same version.
 
 ---
