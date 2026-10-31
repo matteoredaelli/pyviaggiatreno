@@ -156,12 +156,41 @@ CREATE TABLE IF NOT EXISTS crawler_stato (
 """
 
 
+def _verifica_schema_compatibile(conn: sqlite3.Connection) -> None:
+    """Rileva un DB creato con uno schema incompatibile e dà un errore chiaro.
+
+    Lo SCHEMA usa `CREATE TABLE/INDEX IF NOT EXISTS`, che non migra tabelle
+    già esistenti con colonne diverse: su un DB vecchio `executescript`
+    fallirebbe con un criptico "no such column". Qui controlliamo prima le
+    colonne delle tabelle chiave e, se incompatibili, solleviamo un errore
+    esplicito con l'indicazione di cosa fare.
+    """
+    attese = {
+        "fermate": "stop_id",  # vecchio schema: stazione_codice
+    }
+    for tabella, colonna in attese.items():
+        esiste = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tabella,)
+        ).fetchone()
+        if esiste is None:
+            continue  # tabella non ancora creata: DB nuovo, nessun conflitto
+        colonne = {r[1] for r in conn.execute(f"PRAGMA table_info({tabella})").fetchall()}
+        if colonna not in colonne:
+            raise RuntimeError(
+                f"Il database ha uno schema incompatibile: la tabella '{tabella}' "
+                f"non ha la colonna '{colonna}' (creato con una versione precedente "
+                f"del crawler). Rinomina o elimina il file e verrà ricreato, "
+                f"oppure migralo manualmente."
+            )
+
+
 def connect(db_path: str | Path) -> sqlite3.Connection:
     """Apre (creando se necessario) il database e applica lo schema."""
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
+    _verifica_schema_compatibile(conn)
     conn.executescript(SCHEMA)
     conn.commit()
     return conn
