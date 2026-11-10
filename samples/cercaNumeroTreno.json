@@ -1,0 +1,3 @@
+# http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/cercaNumeroTreno/9611
+# status=200 content-type=application/json
+{"numeroTreno":"9611","codLocOrig":"S00219","descLocOrig":"TORINO PORTA NUOVA","dataPartenza":"2026-10-04","corsa":"09611A","h24":false,"tipo":"PG","millisDataPartenza":"1791064800000","formatDataPartenza":null}

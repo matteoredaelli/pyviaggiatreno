@@ -1,0 +1,11 @@
+# http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/infomobilitaRSSBox/false
+# status=200 content-type=text/plain
+<ul id="accordionGenericInfomob"><li class="editModeCollapsibleElement">
+	<a href="#" id="headingNewsAccordion0" onclick="infoBox('headingNewsAccordion')" class="headingNewsAccordionBox inEvidenza" id="CIRCOLAZIONE REGOLARE">CIRCOLAZIONE REGOLARE</a>
+</li><li class="editModeCollapsibleElement">
+	<a href="#" id="headingNewsAccordion1" onclick="infoBox('headingNewsAccordion')" class="headingNewsAccordionBox " id="INFOTRENI INTERCITY - EUROCITY">INFOTRENI INTERCITY - EUROCITY</a>
+</li><li class="editModeCollapsibleElement">
+	<a href="#" id="headingNewsAccordion2" onclick="infoBox('headingNewsAccordion')" class="headingNewsAccordionBox " id="INFORMAZIONI SUL TRASPORTO REGIONALE">INFORMAZIONI SUL TRASPORTO REGIONALE</a>
+</li><li class="editModeCollapsibleElement">
+	<a href="#" id="headingNewsAccordion3" onclick="infoBox('headingNewsAccordion')" class="headingNewsAccordionBox " id="Linea Roma - Pisa: domenica 4 ottobre dalle ore 9:00 alle ore 14:00 circolazione sospesa tra Grosseto e Orbetello per la rimozione di un ordigno bellico">Linea Roma - Pisa: domenica 4 ottobre dalle ore 9:00 alle ore 14:00 circolazione sospesa tra Grosseto e Orbetello per la rimozione di un ordigno bellico</a>
+</li></ul>

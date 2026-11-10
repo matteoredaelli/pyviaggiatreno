@@ -1,0 +1,3 @@
+# http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/infomobilitaTicker
+# status=200 content-type=text/plain
+<ul><li>CIRCOLAZIONE REGOLARE</li></ul>

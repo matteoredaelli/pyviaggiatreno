@@ -1,0 +1,9 @@
+# http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/autocompletaStazioneImpostaViaggio/firenze
+# status=200 content-type=text/plain
+FIRENZE SANTA MARIA NOVELLA|S06421
+FIRENZE CAMPO MARTE|S06900
+FIRENZE CASTELLO|S06419
+FIRENZE RIFREDI|S06420
+FIRENZE ROVEZZANO|S06901
+FIRENZE STATUTO|S06430
+

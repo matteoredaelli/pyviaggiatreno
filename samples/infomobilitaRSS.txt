@@ -1,0 +1,51 @@
+# http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/infomobilitaRSS/false
+# status=200 content-type=text/plain
+<ul id="accordionGenericInfomob"><li class="editModeCollapsibleElement">
+	<a href="#" id="headingNewsAccordion0" onclick="infoCollapse('headingNewsAccordion0')" class="headingNewsAccordion inEvidenza" id="CIRCOLAZIONE REGOLARE">CIRCOLAZIONE REGOLARE</a>
+	<div class="boxAcc" >
+		<div>
+			<div class="textComponent">
+				<h4>04.10.2026</h4>
+				<div class="info-text  inEvidenza">
+				<p><b>In questo momento la circolazione si svolge regolarmente su tutta la rete ferroviaria nazionale.</b></p><p>Eventuali ritardi registrati si riferiscono a precedenti inconvenienti già risolti.</p><p><i><b>REGULAR RAILWAY TRAFFIC</b></i></p><p><i><b>At the moment, the railway traffic is regular on the whole national network.</b></i></p><p><i>Possible registered delays refer to previous service inconveniences that have been already solved.</i></p>				</div>
+			</div>
+		</div>
+		<br>
+	</div>
+</li><li class="editModeCollapsibleElement">
+	<a href="#" id="headingNewsAccordion1" onclick="infoCollapse('headingNewsAccordion1')" class="headingNewsAccordion " id="INFOTRENI INTERCITY - EUROCITY">INFOTRENI INTERCITY - EUROCITY</a>
+	<div class="boxAcc" >
+		<div>
+			<div class="textComponent">
+				<h4>04.10.2026</h4>
+				<div class="info-text  ">
+				<p>I treni indicati viaggiano con un ritardo superiore a 60 minuti o possono essere oggetto di variazioni.<br>&nbsp;</p><p><b><u><a href="http://www.viaggiatreno.it/infomobilitamobile/pages/cercaTreno/cercaTreno.jsp?treno=1963&amp;origine=S01700&amp;datapartenza=1790978400000" target="_blank">Intercity Notte&nbsp;1963 Milano Centrale (18:45) - Catania Centrale (15:00)</a></u></b>: il treno viaggia in ritardo per verifiche tecniche alla linea a Sarno.</p>				</div>
+			</div>
+		</div>
+		<br>
+	</div>
+</li><li class="editModeCollapsibleElement">
+	<a href="#" id="headingNewsAccordion2" onclick="infoCollapse('headingNewsAccordion2')" class="headingNewsAccordion " id="INFORMAZIONI SUL TRASPORTO REGIONALE">INFORMAZIONI SUL TRASPORTO REGIONALE</a>
+	<div class="boxAcc" >
+		<div>
+			<div class="textComponent">
+				<h4>04.10.2026</h4>
+				<div class="info-text  ">
+				<p><b><span style="color: rgb(196,19,41);">REGIONE TOSCANA</span></b></p><p><b>Linea convenzionale Roma - Firenze</b></p><p>Da lunedì 28 settembre, riprogrammazione dell'offerta commerciale.<br>Variazioni, limitazioni di percorso, cancellazioni e corse con bus per i treni del Regionale.<br>&nbsp;</p><p><b><span style="color: rgb(196,19,41);">REGIONE CAMPANIA</span></b></p><p><b><a rel="noopener noreferrer" href="https://www.trenitalia.com/content/dam/trenitalia/tcom/allegati/trenitalia/infomobilita/Interruzione%20accidentale%20Napoli%20C.F.%20-%20Pozzuoli%20Solfatara.pdf" target="_blank">Linea Napoli - Villa Literno</a></b></p><p>Da domenica 21 giugno, circolazione sospesa tra Napoli Campi Flegrei e Pozzuoli a seguito dell'intensificarsi dei fenomeni sismici nell'area dei Campi Flegrei.<br>Cancellazioni, limitazioni di percorso e corse con bus per i treni del Regionale.<br>I canali di vendita sono aggiornati.</p>				</div>
+			</div>
+		</div>
+		<br>
+	</div>
+</li><li class="editModeCollapsibleElement">
+	<a href="#" id="headingNewsAccordion3" onclick="infoCollapse('headingNewsAccordion3')" class="headingNewsAccordion " id="Linea Roma - Pisa: domenica 4 ottobre dalle ore 9:00 alle ore 14:00 circolazione sospesa tra Grosseto e Orbetello per la rimozione di un ordigno bellico">Linea Roma - Pisa: domenica 4 ottobre dalle ore 9:00 alle ore 14:00 circolazione sospesa tra Grosseto e Orbetello per la rimozione di un ordigno bellico</a>
+	<div class="boxAcc" >
+		<div>
+			<div class="textComponent">
+				<h4>04.10.2026</h4>
+				<div class="info-text  ">
+				<p>Dalle ore 9:00 alle ore 14:00 di domenica 4 ottobre, su ordinanza della prefettura di Grosseto, la circolazione dei <b><u><a rel="noopener noreferrer" href="https://www.trenitalia.com/content/dam/trenitalia/tcom/allegati/trenitalia/infomobilita/29.09.2026%20ordigno%20Alberese%204%20ottobre%20rev2.pdf" target="_blank">treni</a><a rel="noopener noreferrer" href="https://www.trenitalia.com/content/dam/trenitalia/tcom/allegati/trenitalia/infomobilita/29.09.2026%20ordigno%20Alberese%204%20ottobre%20rev2.pdf" target="_blank"></a></u></b> è sospesa tra Grosseto e Orbetello.</p><p>La sospensione dei servizi ferroviari è necessaria per consentire le operazioni di rimozione di residuati bellici, rinvenuti nel comune di Orbetello nella località di Talamone, nelle vicinanze della sede ferroviaria.&nbsp;</p><p>L’orario previsto per il termine delle attività può essere anticipato o posticipato in base all’effettivo completamento delle operazioni programmate.</p><p>Variazioni per alcuni treni Alta Velocità e Intercity.<br>Variazioni, limitazioni di percorso e corse con bus per alcuni treni del Regionale.</p><p>I canali di vendita sono aggiornati.&nbsp;</p>				</div>
+			</div>
+		</div>
+		<br>
+	</div>
+</li></ul>

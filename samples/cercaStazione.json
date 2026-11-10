@@ -1,0 +1,3 @@
+# http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/cercaStazione/apice
+# status=200 content-type=application/json
+[{"nomeLungo":"APICE S.ARCANGELO BONITO","nomeBreve":"Apice S.A.B.","label":"Apice","id":"S09314"}]
