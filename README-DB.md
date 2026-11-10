@@ -67,6 +67,7 @@ Stazioni. La chiave e i nomi delle colonne coincidono con `stops.txt` del GTFS T
 | `citta` | TEXT | Città come la dà l'API (vedi note) |
 | `fonte` | TEXT | `viaggiatreno`, `gtfs_trenord` o `viaggiatreno+gtfs_trenord` |
 | `ultimo_aggiornamento` | INTEGER | ms |
+| `ultimo_tabellone` | INTEGER | Ultima volta (ms) che il tabellone delle partenze è stato richiesto con successo. NULL se mai |
 
 ```
 stop_id  stop_name               stop_lat   stop_lon  stop_url  regione_codice  citta           fonte
@@ -108,9 +109,12 @@ Una riga per ogni corsa vista dal crawler.
 | `stato` | TEXT | `in_corso`, `arrivato`, `soppresso`, `non_disponibile` |
 | `ritardo_corrente` | INTEGER | Minuti, all'ultimo rilevamento |
 | `ritardo_finale` | INTEGER | Minuti all'arrivo. NULL finché non è `arrivato` |
-| `tentativi_204` | INTEGER | Risposte vuote consecutive di `andamentoTreno` |
+| `tentativi_204` | INTEGER | Risposte vuote (204) consecutive di `andamentoTreno`, contate solo dopo la partenza programmata |
 | `primo_avvistamento`, `ultimo_aggiornamento` | INTEGER | ms |
-| `raw_json` | TEXT | Ultima risposta dell'API, per ricalcoli futuri |
+| `raw_json` | TEXT | Ultima risposta dell'API, per ricalcoli futuri (vedi note in fondo: tre forme) |
+| `orario_partenza` | INTEGER | Partenza programmata dall'origine, ms. Serve a non verificare un treno molto prima che parta. NULL se ignoto |
+| `ultima_verifica` | INTEGER | Ultima volta (ms) che `andamentoTreno` è stato chiamato per il treno, con qualsiasi esito. Evita di richiamarlo troppo presto. NULL se mai verificato |
+| `chiusura_motivo` | TEXT | Solo per `non_disponibile`: `204` (soglia di risposte vuote) o `giornata_passata` (chiuso in blocco all'avvio). NULL altrimenti e nelle righe precedenti alla colonna |
 | `route_id`, `trip_id` | TEXT | Riservate, sempre NULL |
 
 Vincolo: `UNIQUE (numero_treno, cod_origine, data_partenza_treno)`.
@@ -126,7 +130,7 @@ route_id=NULL  trip_id=NULL  raw_json=<8758 caratteri>
 Ciclo di vita di `stato`:
 - Alla scoperta (segmenti, tabelloni o scan) il treno nasce `in_corso`.
 - La verifica interroga `andamentoTreno` e lo porta a `arrivato` (con `ritardo_finale`) o `soppresso`.
-- Dopo `--soglia-204` risposte vuote di fila diventa `non_disponibile`. Succede anche all'avvio ai treni `in_corso` di giornate passate.
+- Dopo `--soglia-204` risposte vuote di fila (contate solo dopo `orario_partenza`) diventa `non_disponibile` con `chiusura_motivo = '204'`. All'avvio i treni `in_corso` di giornate passate diventano `non_disponibile` con `chiusura_motivo = 'giornata_passata'`.
 
 ## `fermate`
 
@@ -240,14 +244,15 @@ Chiave/valore, per riprendere i cicli dopo un riavvio.
 | Chiave | Significato |
 |---|---|
 | `dimensioni_ultimo_caricamento_ms` | Quando sono state ricaricate `regioni` e `stops` |
-| `checkpoint_tabelloni_idx` | Avanzamento del ciclo tabelloni |
+| `checkpoint_tabelloni_rare_idx` | Posizione della rotazione sulle stazioni secondarie del ciclo tabelloni |
 | `checkpoint_scan_idx` | Avanzamento dello scan-range |
 | `checkpoint_verifica_id` | Ultimo `treni.id` verificato |
+| `ultimo_giro_scoperta`, `ultimo_giro_verifica`, `ultimo_giro_tabelloni`, `ultimo_giro_scan` | Ora (ms) dell'ultimo giro concluso di ogni ciclo: al riavvio si attende solo il tempo residuo |
 
 ```
 chiave                            valore
 dimensioni_ultimo_caricamento_ms  1793776975120
-checkpoint_tabelloni_idx          0
+checkpoint_tabelloni_rare_idx     (assente finché il ciclo non gira con la nuova versione)
 checkpoint_scan_idx               3690
 checkpoint_verifica_id            1039536
 ```
@@ -315,8 +320,8 @@ SQLite non ha `MEDIAN`: per la mediana si leggono i `ritardo_finale` e si calcol
 
 Osservate sul DB reale, non dedotte dal codice.
 
-1. **`stato` non è sempre affidabile per i treni già conclusi.** Nel DB ci sono 405 treni non `arrivato` (344 `non_disponibile` e 61 `in_corso`) la cui ultima fermata risulta già effettuata ma con `ritardo_finale` NULL. Per i `non_disponibile` la causa probabile è che l'API abbia smesso di rispondere prima che il crawler registrasse l'arrivo (non l'ho verificato); i 61 `in_corso` sono del giorno corrente e probabilmente non ancora riverificati. Per un KPI di puntualità conta solo `stato = 'arrivato'` e tieni presente che il campione è un sottoinsieme.
-2. **`raw_json` ha due forme.** Se l'ultimo aggiornamento viene dalla verifica (`andamentoTreno`) contiene l'intero itinerario, con `tipoTreno` e `fermate`. Se il treno è stato solo scoperto (segmenti, tabelloni) contiene la riga di tabellone, senza fermate.
+1. **`stato` di un treno concluso poteva essere sbagliato (corretto).** Fino alla correzione di `upsert_treno`, una riscoperta (tabelloni, scan, segmenti) riportava a `in_corso` un treno già `arrivato` e azzerava `ritardo_finale`, perché non conosce lo stato. Nel DB analizzato erano 458 treni. Le `fermate` restavano intatte, e `storage.ripara_arrivi_persi()` ricostruisce stato e ritardo finale da lì (una tantum, idempotente). Su DB raccolti prima della correzione conta quindi solo `stato = 'arrivato'` dopo aver lanciato la riparazione.
+2. **`raw_json` ha tre forme.** (a) Riga di tabellone, se il treno è stato solo scoperto (segmenti, tabelloni): niente fermate. (b) Risposta di `andamentoTreno` **compatta**, senza `fermate`, per i treni regolari verificati: le fermate sono già nella tabella `fermate`. (c) Risposta di `andamentoTreno` **completa**, con `fermate`, per i treni con anomalie (tipo diverso da `PG`, provvedimenti, riprogrammazione, note, cambi di numero, fermate non effettuate) o con `--raw-json-completo`. I DB raccolti prima di questa modifica hanno quasi tutti la forma (c); `make crawler-manutenzione` li porta alla (b) dove non ci sono anomalie.
 3. **`regione_codice = 0` e `1` sono due grafi diversi.** `tratte` contiene 91 segmenti per la regione 0 e 99 per la regione 1, con ID che non si corrispondono. Nel DB, la tratta `104/213` della regione 0 è Como–Chiasso, mentre oggi la stessa chiamata la restituisce come Milano Centrale–Como. Per analizzare una linea lombarda usa `regione_codice = 1`. Il dato 0 vale solo come fotografia del momento in cui è stato scritto.
 4. **I treni compaiono sui segmenti solo mentre transitano.** `avvistamenti_tratta` e `tratte_osservazioni` descrivono ciò che il crawler ha visto a ogni scansione, non tutti i passaggi. Per sapere quali treni hanno circolato in un giorno usa `treni`.
 5. **Le tabelle crescono in fretta.** `avvistamenti_tratta` e `fermate` sono le più grandi (circa 325 mila e 272 mila righe nel DB attuale, che pesa oltre 200 MB). Se serve spazio, `avvistamenti_tratta` è la prima candidata alla pulizia, perché serve solo alle analisi per segmento e nessuna delle query qui sopra la usa.

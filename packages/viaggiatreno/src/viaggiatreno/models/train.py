@@ -216,6 +216,15 @@ class TrainStatus(ViaggiaTrenoBaseModel):
     fermateSoppresse: list[dict[str, Any]] | None = Field(
         default=None, description="Eventuali fermate soppresse"
     )
+    cambiNumero: list[dict[str, Any]] | None = Field(
+        default=None, description="Cambi di numero lungo la corsa (vuoto se nessuno)"
+    )
+    anormalita: list[dict[str, Any]] | None = Field(
+        default=None, description="Anormalita' di circolazione segnalate (vuoto se nessuna)"
+    )
+    provvedimenti: list[dict[str, Any]] | None = Field(
+        default=None, description="Provvedimenti attivi sulla corsa (vuoto se nessuno)"
+    )
 
     def model_post_init(self, context: Any, /) -> None:
         if self.codiceCliente is not None and self.impresaFerroviaria is None:
