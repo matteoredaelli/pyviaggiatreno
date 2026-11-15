@@ -36,6 +36,42 @@ _BLOCCO = frozenset({403, 429})
 _TRANSITORI = frozenset({500, 502, 503, 504})
 
 
+class LimitatoreRichieste:
+    """Limite globale di richieste al secondo: distanzia gli *inizi* delle richieste.
+
+    Il blocco del sito dipende dal ritmo delle richieste, non da quante sono in
+    volo insieme: un pool di worker limita il parallelismo ma non il rate. Qui ogni
+    richiesta prenota il primo slot libero (a distanza di `1/rate` dalla precedente)
+    e attende fino ad allora. Vale per tutte le richieste che passano dal trasporto,
+    retry compresi. `rate <= 0` = nessun limite.
+    """
+
+    def __init__(
+        self,
+        richieste_al_secondo: float,
+        *,
+        orologio: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        self._intervallo = 1.0 / richieste_al_secondo if richieste_al_secondo > 0 else 0.0
+        self._orologio = orologio
+        self._sleep = sleep
+        self._prossimo = 0.0
+        self.n_richieste = 0  # richieste concesse finora (per le statistiche)
+
+    async def attendi(self) -> None:
+        self.n_richieste += 1
+        if self._intervallo <= 0:
+            return
+        ora = self._orologio()
+        # Nessun await tra lettura e scrittura di _prossimo: in asyncio la prenotazione
+        # dello slot e' atomica, quindi non serve un lock.
+        slot = max(ora, self._prossimo)
+        self._prossimo = slot + self._intervallo
+        if slot > ora:
+            await self._sleep(slot - ora)
+
+
 class TransportResiliente(httpx.AsyncBaseTransport):
     """Avvolge un trasporto httpx aggiungendo retry, backoff e pausa su blocco."""
 
@@ -50,7 +86,9 @@ class TransportResiliente(httpx.AsyncBaseTransport):
         jitter: float = 0.25,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         orologio: Callable[[], float] = time.monotonic,
+        limitatore: LimitatoreRichieste | None = None,
     ) -> None:
+        self._limitatore = limitatore
         self._inner = inner if inner is not None else httpx.AsyncHTTPTransport()
         self._max_tentativi = max(1, max_tentativi)
         self._pausa_iniziale = pausa_blocco_sec
@@ -104,6 +142,8 @@ class TransportResiliente(httpx.AsyncBaseTransport):
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         for tentativo in range(1, self._max_tentativi + 1):
             await self._attendi_pausa()
+            if self._limitatore is not None:
+                await self._limitatore.attendi()
             ultimo = tentativo == self._max_tentativi
             try:
                 risposta = await self._inner.handle_async_request(request)
@@ -178,6 +218,7 @@ def crea_client_http(
     timeout: float = 20.0,
     proxy: str | None = None,
     trust_env: bool = True,
+    limitatore: LimitatoreRichieste | None = None,
 ) -> httpx.AsyncClient:
     """`httpx.AsyncClient` con il trasporto resiliente, da passare a `ViaggiaTrenoClient`.
 
@@ -192,6 +233,7 @@ def crea_client_http(
             max_tentativi=max_tentativi,
             pausa_blocco_sec=pausa_blocco_sec,
             pausa_blocco_max_sec=pausa_blocco_max_sec,
+            limitatore=limitatore,
         ),
         timeout=timeout,
         headers={"User-Agent": DEFAULT_USER_AGENT},

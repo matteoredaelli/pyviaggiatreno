@@ -81,16 +81,13 @@ pip install viaggiatreno-crawler
 
 **Avvio**:
 ```bash
-viaggiatreno-crawler run \
-  --regione 1 \
-  --categorie "ES*,IC,EXP,EC,EN,REG" \
-  --db-path data/treni.db \
-  --intervallo-scoperta 300 \
-  --intervallo-verifica 900
+viaggiatreno-crawler eventi --regione 1 --db-path data/eventi.db
 ```
 
-Flusso: scoperta treni in circolazione (`elenco_tratte`/`dettagli_tratta`) →
-arricchimento percorso (`andamento_treno`) → upsert in SQLite. Dettagli in
+Flusso: stazioni (`elencoStazioni` e quelle scoperte da tabelloni e itinerari) →
+tabelloni di partenze/arrivi dei capolinea → `andamento_treno` una volta alla partenza e
+una dopo l'arrivo previsto → upsert in SQLite, con una coda di lavori a scadenza.
+Dettagli in
 [packages/viaggiatreno_crawler/README.md](./packages/viaggiatreno_crawler/README.md);
 tabelle, schema ed esempi di dati in [README-DB.md](./README-DB.md).
 
@@ -221,7 +218,7 @@ make pytest        # oppure: uv run pytest
 make run           # oppure: uv run viaggiatreno-mcp
 
 # Run crawler
-uv run viaggiatreno-crawler run --db-path data/treni.db
+make crawler-eventi
 
 # Build all packages
 make build         # oppure: uv build

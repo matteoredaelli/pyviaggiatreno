@@ -7,12 +7,18 @@ requires-python = ">=3.12"
 package = false
 
 [tool.uv.workspace]
-members = ["packages/viaggiatreno", "packages/viaggiatreno_mcp", "packages/viaggiatreno_crawler"]
+members = [
+    "packages/viaggiatreno",
+    "packages/viaggiatreno_mcp",
+    "packages/viaggiatreno_crawler",
+    "packages/viaggiatreno_sito",
+]
 
 [tool.uv.sources]
 viaggiatreno = { workspace = true }
 viaggiatreno-mcp = { workspace = true }
 viaggiatreno-crawler = { workspace = true }
+viaggiatreno-sito = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -20,6 +26,7 @@ dev = [
     "viaggiatreno",
     "viaggiatreno-mcp",
     "viaggiatreno-crawler",
+    "viaggiatreno-sito",
     "ruff",
     "pyright",
     "pytest>=9.1.1",

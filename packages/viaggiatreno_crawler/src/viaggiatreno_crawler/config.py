@@ -1,7 +1,7 @@
 # Copyright 2026 Matteo Redaelli
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Configurazione del crawler (parametri da CLI/env)."""
+"""Configurazione del crawler (parametri da CLI)."""
 
 from __future__ import annotations
 
@@ -9,82 +9,71 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class CrawlerConfig:
-    regione: int = 1  # 0 = tutta Italia, 1 = Lombardia, ecc.
+class ConfigEventi:
+    """Parametri del crawler a eventi (coda di lavori con scadenza). Vedi eventi.py."""
+
+    regione: int = 1  # 0 = tutta Italia; altrimenti solo le stazioni di quella regione
+    # "statistiche": monitora ogni corsa (ritardi, binari) senza fine.
+    # "orario": estrae l'orario programmato. Un treno si scarica una volta per (numero, origine,
+    # tipo di giorno) e il record vale `orario_giorni_min`-`orario_giorni_max` giorni; una
+    # stazione di transito si rilegge con la stessa scadenza, un capolinea ogni finestra.
+    modalita: str = "statistiche"
+    orario_giorni_min: int = 6
+    orario_giorni_max: int = 14
+    orario_ora_min: int = 8  # le scadenze cadono a un'ora locale casuale in [min, max)
+    orario_ora_max: int = 15
+    # Sonda dei capolinea in modalita' "orario": il tabellone copre ~1,4-1,7 h (misurato), si
+    # richiama a 79 minuti (p10 della finestra) e, se un tabellone pieno e' piu' corto, 5 minuti
+    # prima della sua fine.
+    orario_sonda_sec: int = 4740
+    orario_sonda_margine_sec: int = 300
+    # Se i tabelloni di un capolinea sono vuoti (di notte, l'85-95% fra mezzanotte e le 3) si
+    # richiama un po' piu' tardi. Un tabellone vuoto non dice nulla oltre la sua finestra
+    # (da -15 minuti a +84-102 minuti, misurata), quindi oltre ~99 minuti si perderebbero le
+    # partenze fra la fine della finestra e la lettura successiva: 90 minuti e' il massimo sicuro.
+    orario_sonda_vuota_sec: int = 5400
+    db_path: str = "data/eventi.db"
+
+    # Limiti di carico. `richieste_al_secondo` e' il vero freno contro i 403 (distanzia
+    # gli inizi delle richieste); `workers` limita solo quante sono in volo insieme.
+    richieste_al_secondo: float = 1.0
+    workers: int = 4
+
+    # Sonda di un capolinea: il tabellone copre ~1,45-1,7 ore in avanti (misurato), quindi
+    # lo si richiama a 75 minuti. Se un tabellone denso (>=15 righe) mostra una finestra
+    # piu' corta, l'intervallo si accorcia (finestra osservata - margine). Il jitter
+    # anticipa soltanto, per non sincronizzare le stazioni.
+    sonda_intervallo_sec: int = 4500
+    sonda_margine_sec: int = 600
+    sonda_jitter: float = 0.1
+    # Una stazione non capolinea si risonda solo ogni tanto, per scoprire nuove origini.
+    ricensimento_sec: int = 86_400
+
+    # Verifica del treno: una chiamata poco prima della partenza (itinerario, binari,
+    # orari) e una dopo l'arrivo previsto a capolinea (esito, ritardo finale).
+    verifica_anticipo_sec: int = 600
+    verifica_margine_arrivo_sec: int = 600
+    verifica_retry_sec: int = 300  # nuovo tentativo dopo un 204 o un treno non ancora arrivato
+    verifica_scadenza_max_sec: int = 21_600  # oltre arrivo programmato + 6 h si rinuncia
+    soglia_204: int = 5
+
+    errore_attesa_sec: int = 300  # nuovo tentativo dopo un errore di rete
+    dimensioni_ttl_sec: int = 86_400
+    raw_json_completo: bool = False
+    log_stats_sec: int = 60
+
+    # Lavori periodici opzionali (0 = spenti), che alimentano le tabelle per tratta:
+    # - `scopri_tratte`: elencoTratte + dettagliTratta -> tratte, tratte_osservazioni,
+    #   avvistamenti_tratta, e treni circolanti (anche quelli senza tabellone).
+    # - `scan_numeri`: cerca_numero_treno attorno ai numeri noti -> treni nuovi.
+    tratte_intervallo_sec: int = 0
     categorie: str = "ES*,IC,EXP,EC,EN,REG"
-    db_path: str = "data/treni.db"
-    intervallo_scoperta_sec: int = 300  # 5 minuti: scansione elencoTratte/dettagliTratta
-    intervallo_verifica_sec: int = 900  # 15 minuti: controllo andamentoTreno sui treni noti
-    soglia_204: int = 5  # tentativi falliti prima di segnare un treno "non_disponibile"
-    zoomlevel: int = 6  # valore verificato come il più completo (vedi VIAGGIATRENO.md)
+    zoomlevel: int = 6
+    scan_intervallo_sec: int = 0
+    scan_finestra: int = 5
+    scan_max_chiamate: int = 300
 
-    # Verifica anticipata: un treno si controlla con andamentoTreno solo a partire
-    # da `verifica_anticipo_sec` prima della partenza programmata. Prima di allora
-    # la chiamata e' quasi sempre inutile (e un 204 e' normale). 0 = solo dalla
-    # partenza in poi; un valore negativo disattiva il filtro (verifica sempre).
-    verifica_anticipo_sec: int = 900
-
-    # Intervalli minimi tra due chiamate allo STESSO elemento, indipendenti dal ciclo
-    # che le richiede: dopo un riavvio (o con piu' cicli che toccano lo stesso treno)
-    # evitano di richiamare subito cio' che e' appena stato letto. 0 = nessun minimo.
-    verifica_min_intervallo_sec: int = 300  # andamentoTreno sullo stesso treno
-    tabellone_min_intervallo_sec: int = 1800  # partenze della stessa stazione
-
-    # Rete: retry/backoff sugli errori transitori e pausa globale dopo un blocco
-    # (403/429) del sito. Vedi rete.py.
     rete_max_tentativi: int = 3
-    # Proxy HTTP esplicito (es. "http://utente:password@proxy:3128"). Se None si
-    # usano le variabili d'ambiente standard (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY,
-    # NO_PROXY).
     rete_proxy: str | None = None
     rete_pausa_blocco_sec: float = 60.0
     rete_pausa_blocco_max_sec: float = 600.0
-
-    # raw_json: di default salvato per intero solo per i treni con anomalie
-    # (cancellazioni parziali, deviazioni, riprogrammazioni, ...). Per gli altri
-    # resta la versione compatta, senza `fermate` (gia' nella tabella `fermate`).
-    raw_json_completo: bool = False
-
-    # Verifica: quante chiamate andamento_treno tenere in volo insieme. La
-    # verifica scorre tutti i treni attivi in sequenza; con molti treni un
-    # giro può sforare l'intervallo. La concorrenza limitata (Semaphore)
-    # accelera ~Nx mantenendo il carico sull'API sotto controllo. 1 = seriale.
-    verifica_concorrenza: int = 5
-    # Tetto di treni verificati per giro: se gli attivi superano questo valore
-    # se ne controllano al massimo N a giro (ripresi dal checkpoint), così un
-    # giro non sfora mai l'intervallo a prescindere dal volume. 0 = nessun cap.
-    verifica_max_per_giro: int = 0
-
-    # TTL del caricamento dimensioni (regioni/stops): rieseguito solo se più
-    # vecchio di questo valore, per non pagarne il costo a ogni riavvio.
-    dimensioni_ttl_sec: int = 86_400  # 24h
-
-    # Scoperta via tabelloni partenze/arrivi delle stazioni note (vedi
-    # scopri_da_tabelloni): trova treni che elencoTratte/dettagliTratta non
-    # vede (es. in sosta in stazione, o categorie/segmenti non coperti) e ne
-    # ricava direttamente numero+origine+data, pronti per andamentoTreno.
-    # 0 disabilita questo ciclo.
-    intervallo_tabelloni_sec: int = 0
-    # Quante stazioni sondare per ciclo, ordinate per traffico osservato
-    # (le più trafficate hanno più probabilità di scoprire treni nuovi).
-    # Evita di martellare tutte le ~3000 stazioni ad ogni giro.
-    tabelloni_max_stazioni: int = 50
-    # Stazioni "secondarie" (oltre le prime `tabelloni_max_stazioni`): non si
-    # sondano ad ogni giro ma a rotazione, `tabelloni_rare_per_giro` per giro,
-    # cosi' prima o poi si copre l'intero elenco senza moltiplicare le chiamate.
-    # Una rotazione completa dura ceil(secondarie / N) giri. 0 = non sondarle mai.
-    tabelloni_rare_per_giro: int = 10
-    # Se True interroga anche gli arrivi di ogni stazione. Di default solo le
-    # partenze: ogni treno compare nella partenza della sua stazione di origine,
-    # e nelle stazioni di transito arrivi e partenze elencano gli stessi treni
-    # (misurato dal vivo), quindi la seconda chiamata non aggiunge scoperte.
-    tabelloni_arrivi: bool = False
-
-    # Scan-range (vedi scan_range_numeri): sonda una finestra +/-scan_finestra
-    # ATTORNO a ciascun numero treno gia' noto (non tra coppie di numeri). I
-    # test dal vivo mostrano densita' locale 50-70% in queste finestre, mentre
-    # il range globale e' quasi tutto vuoto. Usa cerca_numero_treno come filtro
-    # (fornisce origine+data) prima di andamentoTreno. 0 disabilita il ciclo.
-    intervallo_scan_sec: int = 0
-    scan_finestra: int = 5  # +/- numeri da sondare attorno a ogni numero noto
-    scan_max_chiamate: int = 300  # tetto di cerca_numero_treno per ciclo

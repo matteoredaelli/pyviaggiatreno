@@ -10,15 +10,14 @@ from typing import cast
 
 import pytest
 from viaggiatreno import TrainStatus, ViaggiaTrenoClient
+from viaggiatreno.insights import ha_anomalie
 from viaggiatreno_crawler import storage
-from viaggiatreno_crawler.__main__ import parse_args
-from viaggiatreno_crawler.config import CrawlerConfig
+from viaggiatreno_crawler.__main__ import parse_args_eventi
+from viaggiatreno_crawler.config import ConfigEventi
 from viaggiatreno_crawler.poller import (
-    _ha_anomalie,
     _orario_int,
-    _raw_json_status,
+    raw_json_per,
     scopri_treni,
-    verifica_treni_attivi,
 )
 
 ORA = 1_800_000_000_000  # istante di riferimento fisso, in ms
@@ -44,73 +43,6 @@ def test_orario_int_scarta_le_stringhe_di_dettagli_tratta():
     assert _orario_int("2026-11-04") is None  # dettagliTratta: solo la data
     assert _orario_int(None) is None
     assert _orario_int(True) is None
-
-
-def test_i_treni_in_partenza_lontana_non_vengono_verificati(tmp_path):
-    conn = storage.connect(tmp_path / "t.db")
-    _treno(conn, 1, ORA + 3 * 60 * MIN)  # tra 3 ore
-    _treno(conn, 2, ORA + 10 * MIN)  # tra 10 minuti
-    _treno(conn, 3, ORA - 20 * MIN)  # gia' partito
-    _treno(conn, 4, None)  # orario ignoto: si verifica sempre
-    soglia = ORA + 15 * MIN
-    numeri = {r["numero_treno"] for r in storage.treni_attivi(conn, soglia)}
-    assert numeri == {2, 3, 4}
-    assert storage.conta_treni_attivi(conn, soglia) == 3
-    assert storage.conta_treni_attivi(conn) == 4  # senza filtro: tutti
-
-
-def test_treni_attivi_da_rispetta_il_filtro_e_il_cap(tmp_path):
-    conn = storage.connect(tmp_path / "t.db")
-    for n in range(1, 6):
-        _treno(conn, n, ORA - MIN)
-    _treno(conn, 99, ORA + 5 * 60 * MIN)
-    soglia = ORA
-    pezzo = storage.treni_attivi_da(conn, 0, 3, soglia)
-    assert [r["numero_treno"] for r in pezzo] == [1, 2, 3]
-    assert 99 not in {r["numero_treno"] for r in storage.treni_attivi_da(conn, 0, 50, soglia)}
-
-
-def test_il_default_anticipo_e_15_minuti_e_negativo_disattiva():
-    assert CrawlerConfig().verifica_anticipo_sec == 900
-    assert parse_args(["run"]).verifica_anticipo_sec == 900
-    assert parse_args(["run", "--verifica-anticipo", "-1"]).verifica_anticipo_sec == -1
-
-
-class ClientVerifica:
-    def __init__(self, risposte=None):
-        self.chiamate: list[int] = []
-        self.risposte = risposte or {}
-
-    async def andamento_treno(self, cod, numero, data):
-        self.chiamate.append(numero)
-        return self.risposte.get(numero)
-
-
-@pytest.mark.asyncio
-async def test_la_verifica_non_chiama_i_treni_in_partenza_lontana(tmp_path, monkeypatch):
-    import time
-
-    monkeypatch.setattr(time, "time", lambda: ORA / 1000)
-    conn = storage.connect(tmp_path / "t.db")
-    _treno(conn, 1, ORA + 3 * 60 * MIN)
-    _treno(conn, 2, ORA - 5 * MIN)
-    client = ClientVerifica()
-    await verifica_treni_attivi(conn, cast(ViaggiaTrenoClient, client), CrawlerConfig())
-    assert client.chiamate == [2]
-
-
-@pytest.mark.asyncio
-async def test_anticipo_negativo_verifica_tutto_come_prima(tmp_path, monkeypatch):
-    import time
-
-    monkeypatch.setattr(time, "time", lambda: ORA / 1000)
-    conn = storage.connect(tmp_path / "t.db")
-    _treno(conn, 1, ORA + 3 * 60 * MIN)
-    _treno(conn, 2, ORA - 5 * MIN)
-    client = ClientVerifica()
-    cfg = CrawlerConfig(verifica_anticipo_sec=-1)
-    await verifica_treni_attivi(conn, cast(ViaggiaTrenoClient, client), cfg)
-    assert sorted(client.chiamate) == [1, 2]
 
 
 # ============================================================ 4) i 204
@@ -139,14 +71,6 @@ def test_senza_orario_noto_il_204_si_conta_come_prima(tmp_path):
     tid = _treno(conn, 1, None)
     assert storage.registra_204(conn, tid, soglia=2, ora_ms=ORA) == "contato"
     assert storage.registra_204(conn, tid, soglia=2, ora_ms=ORA) == "chiuso"
-
-
-def test_chiusura_in_blocco_registra_il_motivo_giornata_passata(tmp_path):
-    conn = storage.connect(tmp_path / "t.db")
-    _treno(conn, 1, None)
-    assert storage.chiudi_treni_obsoleti(conn, mezzanotte_oggi_ms=10) == 1
-    r = conn.execute("SELECT stato, chiusura_motivo FROM treni").fetchone()
-    assert (r["stato"], r["chiusura_motivo"]) == ("non_disponibile", "giornata_passata")
 
 
 def test_un_nuovo_orario_dalla_riscoperta_non_viene_perso_ne_azzerato(tmp_path):
@@ -188,13 +112,12 @@ def _status(**extra) -> TrainStatus:
 
 
 def test_treno_regolare_raw_json_senza_fermate_ed_e_piu_piccolo():
-    cfg = CrawlerConfig()
     s = _status()
-    assert _ha_anomalie(s) is False
-    compatto = json.loads(_raw_json_status(s, cfg))
+    assert ha_anomalie(s) is False
+    compatto = json.loads(raw_json_per(s, False))
     assert "fermate" not in compatto
     assert compatto["numeroTreno"] == 1
-    assert len(_raw_json_status(s, cfg)) < len(json.dumps(s.model_dump(mode="json")))
+    assert len(raw_json_per(s, False)) < len(json.dumps(s.model_dump(mode="json")))
 
 
 @pytest.mark.parametrize(
@@ -211,20 +134,19 @@ def test_treno_regolare_raw_json_senza_fermate_ed_e_piu_piccolo():
 )
 def test_le_anomalie_conservano_il_raw_json_completo(extra):
     s = _status(**extra)
-    assert _ha_anomalie(s) is True
-    assert "fermate" in json.loads(_raw_json_status(s, CrawlerConfig()))
+    assert ha_anomalie(s) is True
+    assert "fermate" in json.loads(raw_json_per(s, False))
 
 
 def test_fermata_soppressa_e_un_anomalia():
     s = _status(fermate=[{"stazione": "A", "id": "S1", "tipoFermata": "P", "actualFermataType": 3}])
-    assert _ha_anomalie(s) is True
+    assert ha_anomalie(s) is True
 
 
 def test_flag_raw_json_completo_salva_sempre_tutto():
-    cfg = CrawlerConfig(raw_json_completo=True)
-    assert "fermate" in json.loads(_raw_json_status(_status(), cfg))
-    assert parse_args(["run", "--raw-json-completo"]).raw_json_completo is True
-    assert parse_args(["run"]).raw_json_completo is False
+    assert "fermate" in json.loads(raw_json_per(_status(), True))
+    assert parse_args_eventi(["eventi", "--raw-json-completo"]).raw_json_completo is True
+    assert parse_args_eventi(["eventi"]).raw_json_completo is False
 
 
 def test_compatta_raw_json_storico_tocca_solo_i_regolari_arrivati(tmp_path):
@@ -360,7 +282,7 @@ class ClientTratte:
 @pytest.mark.asyncio
 async def test_un_errore_su_un_segmento_non_interrompe_il_giro(tmp_path):
     conn = storage.connect(tmp_path / "t.db")
-    n = await scopri_treni(conn, cast(ViaggiaTrenoClient, ClientTratte()), CrawlerConfig())
+    n = await scopri_treni(conn, cast(ViaggiaTrenoClient, ClientTratte()), ConfigEventi())
     assert n == 2  # i segmenti 1 e 3 sono stati letti nonostante l'errore sul 2
     assert {r[0] for r in conn.execute("SELECT numero_treno FROM treni")} == {10, 30}
     # tutti e tre i segmenti hanno comunque la loro osservazione di occupazione

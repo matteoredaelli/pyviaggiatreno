@@ -1,17 +1,19 @@
 # Copyright 2026 Matteo Redaelli
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""CLI minimale: `viaggiatreno-crawler run [opzioni]`."""
+"""CLI: `viaggiatreno-crawler eventi [opzioni]` e `viaggiatreno-crawler manutenzione`."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
+import sys
 
-from viaggiatreno_crawler import storage
-from viaggiatreno_crawler.config import CrawlerConfig
-from viaggiatreno_crawler.poller import run
+from viaggiatreno_crawler import storage, viste
+from viaggiatreno_crawler.config import ConfigEventi
+from viaggiatreno_crawler.eventi import run_eventi
+from viaggiatreno_crawler.poller import run_stazioni, run_tratte
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -34,6 +36,11 @@ def _parser() -> argparse.ArgumentParser:
         help="toglie le fermate dal raw_json dei treni regolari arrivati (restano in `fermate`)",
     )
     p_man.add_argument(
+        "--ricava-destinazione",
+        action="store_true",
+        help="valorizza treni.cod_destinazione dall'ultima fermata non soppressa",
+    )
+    p_man.add_argument(
         "--ricava-orario-partenza",
         action="store_true",
         help="valorizza treni.orario_partenza dai dati gia' presenti",
@@ -43,150 +50,140 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="VACUUM finale per restituire spazio al filesystem (serve spazio libero pari al DB)",
     )
-    p_run = sub.add_parser("run", help="Avvia i cicli di scoperta e verifica")
-    p_run.add_argument("--regione", type=int, default=1)
-    p_run.add_argument("--categorie", default="ES*,IC,EXP,EC,EN,REG")
-    p_run.add_argument("--db-path", default="data/treni.db")
-    p_run.add_argument("--intervallo-scoperta", type=int, default=300, help="secondi")
-    p_run.add_argument("--intervallo-verifica", type=int, default=900, help="secondi")
-    p_run.add_argument(
-        "--intervallo-tabelloni",
+    p_tr = sub.add_parser(
+        "tratte",
+        help="Carica una tantum i segmenti della rete da elencoTratte (default: regioni 0-22)",
+    )
+    p_tr.add_argument("--db-path", default="data/eventi.db")
+    p_tr.add_argument(
+        "--regione",
+        type=int,
+        action="append",
+        help="solo questa regione, 0 = Italia (ripetibile); se omesso 0-22",
+    )
+    p_tr.add_argument("--richieste-al-secondo", type=float, default=1.0)
+    p_tr.add_argument("--proxy", default=None)
+    p_er = sub.add_parser(
+        "errori",
+        help="Mostra gli ultimi errori registrati dal crawler (sola lettura, anche a crawler acceso)",
+    )
+    p_er.add_argument("--db-path", default="data/eventi.db")
+    p_er.add_argument("--ultimi", type=int, default=20, metavar="N", help="quanti mostrare")
+    p_vi = sub.add_parser(
+        "viste",
+        help="(Ri)crea le viste SQL per dashboard e wiki; non tocca i dati (si puo' lanciare a crawler acceso)",
+    )
+    p_vi.add_argument("--db-path", default="data/eventi.db")
+    p_vi.add_argument(
+        "--forza", action="store_true", help="ricrea anche se la versione e' invariata"
+    )
+    p_st = sub.add_parser(
+        "stazioni",
+        help="Carica una tantum le stazioni da elencoStazioni (default: tutta Italia, regioni 1-22)",
+    )
+    p_st.add_argument("--db-path", default="data/eventi.db")
+    p_st.add_argument(
+        "--regione",
+        type=int,
+        action="append",
+        help="solo questa regione (ripetibile); se omesso tutte le 22",
+    )
+    p_st.add_argument("--richieste-al-secondo", type=float, default=1.0)
+    p_st.add_argument("--proxy", default=None)
+    p_ev = sub.add_parser(
+        "eventi",
+        help="Crawler a eventi: coda di lavori con scadenza (stazioni, capolinea, treni)",
+    )
+    p_ev.add_argument("--db-path", default="data/eventi.db")
+    p_ev.add_argument(
+        "--modalita",
+        choices=("statistiche", "orario"),
+        default="statistiche",
+        help="statistiche = monitora ritardi e binari; orario = estrae l'orario programmato "
+        "(un treno per numero/origine/tipo di giorno, record con scadenza 6-14 giorni)",
+    )
+    p_ev.add_argument("--orario-giorni-min", type=int, default=6)
+    p_ev.add_argument("--orario-giorni-max", type=int, default=14)
+    p_ev.add_argument("--orario-ora-min", type=int, default=8)
+    p_ev.add_argument("--orario-ora-max", type=int, default=15)
+    p_ev.add_argument("--regione", type=int, default=1, help="regione di partenza (0 = tutte)")
+    p_ev.add_argument(
+        "--richieste-al-secondo",
+        type=float,
+        default=1.0,
+        help="limite globale di richieste al secondo (0 = nessun limite)",
+    )
+    p_ev.add_argument("--workers", type=int, default=4, help="lavori eseguiti in parallelo")
+    p_ev.add_argument("--sonda-intervallo", type=int, default=4500, help="secondi tra due sonde")
+    p_ev.add_argument("--sonda-margine", type=int, default=600, help="secondi di sovrapposizione")
+    p_ev.add_argument("--ricensimento", type=int, default=86_400, help="secondi, non capolinea")
+    p_ev.add_argument("--verifica-anticipo", type=int, default=600)
+    p_ev.add_argument("--verifica-margine-arrivo", type=int, default=600)
+    p_ev.add_argument("--verifica-retry", type=int, default=300)
+    p_ev.add_argument("--verifica-scadenza-max", type=int, default=21_600)
+    p_ev.add_argument("--soglia-204", type=int, default=5)
+    p_ev.add_argument("--errore-attesa", type=int, default=300)
+    p_ev.add_argument("--dimensioni-ttl", type=int, default=86_400)
+    p_ev.add_argument("--raw-json-completo", action="store_true")
+    p_ev.add_argument("--log-stats", type=int, default=60, help="secondi tra due righe di stato")
+    p_ev.add_argument(
+        "--intervallo-tratte",
         type=int,
         default=0,
-        help="secondi; >0 abilita la scoperta via tabelloni delle stazioni (0 = off)",
+        help="secondi; >0 abilita la scoperta per segmenti (elencoTratte/dettagliTratta) e "
+        "salva tratte, tratte_osservazioni, avvistamenti_tratta (0 = off)",
     )
-    p_run.add_argument(
-        "--tabelloni-max-stazioni",
-        type=int,
-        default=50,
-        help="n. stazioni principali (da cui nascono più treni) sondate ad ogni ciclo",
-    )
-    p_run.add_argument(
-        "--tabelloni-rare-per-giro",
-        type=int,
-        default=10,
-        help="n. stazioni secondarie sondate a rotazione ad ogni ciclo (0 = mai)",
-    )
-    p_run.add_argument(
-        "--tabelloni-arrivi",
-        action="store_true",
-        help="interroga anche gli arrivi delle stazioni (default: solo partenze)",
-    )
-    p_run.add_argument(
+    p_ev.add_argument("--categorie", default="ES*,IC,EXP,EC,EN,REG")
+    p_ev.add_argument("--zoomlevel", type=int, default=6)
+    p_ev.add_argument(
         "--intervallo-scan",
         type=int,
         default=0,
-        help="secondi; >0 abilita lo scan-range attorno ai numeri noti (0 = off)",
+        help="secondi; >0 abilita lo scan dei numeri treno attorno ai noti (0 = off)",
     )
-    p_run.add_argument(
-        "--scan-finestra",
-        type=int,
-        default=5,
-        help="+/- numeri da sondare attorno a ogni numero treno noto",
-    )
-    p_run.add_argument(
-        "--scan-max-chiamate",
-        type=int,
-        default=300,
-        help="tetto di chiamate cerca_numero_treno per ciclo di scan",
-    )
-    p_run.add_argument("--soglia-204", type=int, default=5)
-    p_run.add_argument(
-        "--verifica-anticipo",
-        type=int,
-        default=900,
-        help="secondi prima della partenza programmata da cui si verifica un treno "
-        "(default 900; negativo = verifica sempre, come prima)",
-    )
-    p_run.add_argument(
-        "--verifica-min-intervallo",
-        type=int,
-        default=300,
-        help="secondi minimi tra due chiamate andamentoTreno sullo stesso treno (0 = nessun minimo)",
-    )
-    p_run.add_argument(
-        "--tabellone-min-intervallo",
-        type=int,
-        default=1800,
-        help="secondi minimi tra due richieste delle partenze della stessa stazione (0 = nessun minimo)",
-    )
-    p_run.add_argument(
-        "--raw-json-completo",
-        action="store_true",
-        help="salva sempre l'intero raw_json (default: completo solo per i treni con anomalie)",
-    )
-    p_run.add_argument(
-        "--rete-max-tentativi",
-        type=int,
-        default=3,
-        help="tentativi per richiesta HTTP su errori transitori/blocchi (1 = nessun retry)",
-    )
-    p_run.add_argument(
-        "--proxy",
-        default=None,
-        help="proxy HTTP (es. http://proxy:3128); se omesso si usano HTTP_PROXY/HTTPS_PROXY/"
-        "ALL_PROXY/NO_PROXY dall'ambiente",
-    )
-    p_run.add_argument(
-        "--rete-pausa-blocco",
-        type=float,
-        default=60.0,
-        help="secondi di pausa globale dopo un 403/429, raddoppia a ogni blocco consecutivo",
-    )
-    p_run.add_argument(
-        "--rete-pausa-blocco-max",
-        type=float,
-        default=600.0,
-        help="tetto in secondi della pausa dopo blocchi consecutivi",
-    )
-    p_run.add_argument(
-        "--verifica-concorrenza",
-        type=int,
-        default=5,
-        help="n. chiamate andamento_treno concorrenti nella verifica (1 = seriale)",
-    )
-    p_run.add_argument(
-        "--verifica-max-per-giro",
-        type=int,
-        default=0,
-        help="max treni verificati per giro se gli attivi superano la soglia (0 = nessun cap)",
-    )
-    p_run.add_argument(
-        "--dimensioni-ttl",
-        type=int,
-        default=86_400,
-        help="secondi; ricarica regioni/stops solo se più vecchi di questo (default 24h)",
-    )
+    p_ev.add_argument("--scan-finestra", type=int, default=5)
+    p_ev.add_argument("--scan-max-chiamate", type=int, default=300)
+    p_ev.add_argument("--rete-max-tentativi", type=int, default=3)
+    p_ev.add_argument("--proxy", default=None)
+    p_ev.add_argument("--rete-pausa-blocco", type=float, default=60.0)
+    p_ev.add_argument("--rete-pausa-blocco-max", type=float, default=600.0)
     return parser
 
 
-def parse_args(argv: list[str] | None = None) -> CrawlerConfig:
+def parse_args_eventi(argv: list[str] | None = None) -> ConfigEventi:
     args = _parser().parse_args(argv)
-    return CrawlerConfig(
+    return ConfigEventi(
         regione=args.regione,
-        categorie=args.categorie,
         db_path=args.db_path,
-        intervallo_scoperta_sec=args.intervallo_scoperta,
-        intervallo_verifica_sec=args.intervallo_verifica,
-        intervallo_tabelloni_sec=args.intervallo_tabelloni,
-        tabelloni_max_stazioni=args.tabelloni_max_stazioni,
-        tabelloni_rare_per_giro=args.tabelloni_rare_per_giro,
-        tabelloni_arrivi=args.tabelloni_arrivi,
-        intervallo_scan_sec=args.intervallo_scan,
+        modalita=args.modalita,
+        orario_giorni_min=args.orario_giorni_min,
+        orario_giorni_max=args.orario_giorni_max,
+        orario_ora_min=args.orario_ora_min,
+        orario_ora_max=args.orario_ora_max,
+        richieste_al_secondo=args.richieste_al_secondo,
+        workers=args.workers,
+        sonda_intervallo_sec=args.sonda_intervallo,
+        sonda_margine_sec=args.sonda_margine,
+        ricensimento_sec=args.ricensimento,
+        verifica_anticipo_sec=args.verifica_anticipo,
+        verifica_margine_arrivo_sec=args.verifica_margine_arrivo,
+        verifica_retry_sec=args.verifica_retry,
+        verifica_scadenza_max_sec=args.verifica_scadenza_max,
+        soglia_204=args.soglia_204,
+        errore_attesa_sec=args.errore_attesa,
+        dimensioni_ttl_sec=args.dimensioni_ttl,
+        raw_json_completo=args.raw_json_completo,
+        log_stats_sec=args.log_stats,
+        tratte_intervallo_sec=args.intervallo_tratte,
+        categorie=args.categorie,
+        zoomlevel=args.zoomlevel,
+        scan_intervallo_sec=args.intervallo_scan,
         scan_finestra=args.scan_finestra,
         scan_max_chiamate=args.scan_max_chiamate,
-        soglia_204=args.soglia_204,
-        verifica_anticipo_sec=args.verifica_anticipo,
-        raw_json_completo=args.raw_json_completo,
-        verifica_min_intervallo_sec=args.verifica_min_intervallo,
-        tabellone_min_intervallo_sec=args.tabellone_min_intervallo,
         rete_max_tentativi=args.rete_max_tentativi,
         rete_proxy=args.proxy,
         rete_pausa_blocco_sec=args.rete_pausa_blocco,
         rete_pausa_blocco_max_sec=args.rete_pausa_blocco_max,
-        verifica_concorrenza=args.verifica_concorrenza,
-        verifica_max_per_giro=args.verifica_max_per_giro,
-        dimensioni_ttl_sec=args.dimensioni_ttl,
     )
 
 
@@ -199,6 +196,11 @@ def manutenzione(args: argparse.Namespace) -> None:
     fatto = False
     conn = storage.connect(args.db_path)
     try:
+        if args.ricava_destinazione:
+            n = storage.ricava_destinazione(conn)
+            m = storage.ricava_capolinea(conn)
+            print(f"cod_destinazione: {n} treni valorizzati; capolinea: {m} stazioni aggiornate")
+            fatto = True
         if args.ricava_orario_partenza:
             n = storage.ricava_orario_partenza(conn)
             print(f"orario_partenza: {n} aggiornamenti")
@@ -223,13 +225,91 @@ def manutenzione(args: argparse.Namespace) -> None:
         conn.close()
 
 
+def mostra_errori(db_path: str, n: int) -> int:
+    """Stampa gli ultimi `n` errori e un riepilogo per fonte. Apre il DB in sola lettura."""
+    import os
+    import sqlite3
+    from datetime import UTC, datetime
+
+    from viaggiatreno.insights import offset_italia_ms
+
+    if not os.path.exists(db_path):
+        print(f"DB non trovato: {db_path}", file=sys.stderr)
+        return 2
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        esiste = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='errori'"
+        ).fetchone()
+        if esiste is None:
+            print("Nessuna tabella `errori`: il crawler nuovo non ha ancora girato su questo DB.")
+            return 0
+        totali = conn.execute(
+            "SELECT fonte, COUNT(*) n, MAX(ts) ultimo FROM errori GROUP BY fonte ORDER BY n DESC"
+        ).fetchall()
+        righe = storage.ultimi_errori(conn, max(n, 0))
+    finally:
+        conn.close()
+
+    def quando(ms: int) -> str:
+        t = datetime.fromtimestamp((ms + offset_italia_ms(ms)) / 1000, UTC)
+        return t.strftime("%Y-%m-%d %H:%M:%S")
+
+    if not totali:
+        print("Nessun errore registrato.")
+        return 0
+    print("Riepilogo (ora italiana): " + " | ".join(f"{t['fonte']}: {t['n']}" for t in totali))
+    print(f"\nUltimi {len(righe)} errori, dal piu' recente:")
+    for r in righe:
+        print(f"{quando(r['ts'])}  {r['fonte']:<20} {r['chiave'] or '-':<10} {r['messaggio']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = _parser().parse_args(argv)
     if args.comando == "manutenzione":
         manutenzione(args)
         return
-    asyncio.run(run(parse_args(argv)))
+    if args.comando == "errori":
+        raise SystemExit(mostra_errori(args.db_path, args.ultimi))
+    if args.comando == "viste":
+        import os
+
+        if not os.path.exists(args.db_path):
+            raise SystemExit(f"DB non trovato: {args.db_path}")
+        conn = storage.connect(args.db_path)
+        try:
+            scritte = viste.aggiorna_viste(conn, forza=args.forza)
+        finally:
+            conn.close()
+        print(
+            f"viste {'ricreate' if scritte else 'gia aggiornate'} (versione {viste.versione()}): "
+            + ", ".join(viste.VISTE)
+        )
+        return
+    if args.comando == "tratte":
+        errori = asyncio.run(
+            run_tratte(
+                args.db_path,
+                args.regione,
+                richieste_al_secondo=args.richieste_al_secondo,
+                proxy=args.proxy,
+            )
+        )
+        raise SystemExit(1 if errori else 0)
+    if args.comando == "stazioni":
+        errori = asyncio.run(
+            run_stazioni(
+                args.db_path,
+                args.regione,
+                richieste_al_secondo=args.richieste_al_secondo,
+                proxy=args.proxy,
+            )
+        )
+        raise SystemExit(1 if errori else 0)
+    asyncio.run(run_eventi(parse_args_eventi(argv)))
 
 
 if __name__ == "__main__":

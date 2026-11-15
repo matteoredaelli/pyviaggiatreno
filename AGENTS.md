@@ -5,7 +5,7 @@ Guida sintetica del repo per agenti AI e contributori.
 ## Cos'è
 
 Monorepo Python basato sulle API **non ufficiali** di ViaggiaTreno (treni in
-Italia, dati real-time). Workspace `uv` con 3 pacchetti in `packages/`.
+Italia, dati real-time). Workspace `uv` con 4 pacchetti in `packages/`.
 
 ## Pacchetti
 
@@ -13,9 +13,12 @@ Italia, dati real-time). Workspace `uv` con 3 pacchetti in `packages/`.
 |---|---|---|---|
 | `viaggiatreno` | `viaggiatreno` | Libreria client HTTP async (core, no MCP/SQLite) | — (import) |
 | `viaggiatreno_mcp` | `viaggiatreno-mcp` | Server MCP (adattatore sottile sulla core) | `viaggiatreno-mcp` |
-| `viaggiatreno_crawler` | `viaggiatreno-crawler` | Poller → salva dati storici in SQLite | `viaggiatreno-crawler run` |
+| `viaggiatreno_crawler` | `viaggiatreno-crawler` | Crawler a eventi (coda di lavori con scadenza) → dati storici in SQLite | `viaggiatreno-crawler eventi` |
+| `viaggiatreno_sito` | `viaggiatreno-sito` | Generatore di un sito statico (una pagina per stazione) dal DB del crawler | `viaggiatreno-sito` |
 
-Nessuna CLI generica separata: solo i due entry point sopra.
+Nessuna CLI generica separata: solo gli entry point sopra (`viaggiatreno-mcp`, `viaggiatreno-crawler`,
+`viaggiatreno-sito`). `viaggiatreno-sito-hugo` (stesso pacchetto, `make sito-hugo`) scrive solo pagine markdown
+delle stazioni in `content/<sezione>/` di un sito Hugo esistente, senza layout propri.
 
 ## Layout
 
@@ -24,14 +27,18 @@ Nessuna CLI generica separata: solo i due entry point sopra.
   - `api/parsers.py` — parsing JSON/testo/HTML + quirk (204, date JS, orari >24h)
   - `models/` — modelli pydantic (`station`, `train`, `route`, `service`, `common`)
   - `heuristics/rotazione.py` — euristiche
+  - `insights/` — analisi su dati già scaricati (nessun I/O): `corsa` (riga di tabellone normalizzata), `collegamento` (origine→destinazione di un verso), `itinerario` (fermate ordinate, indipendente dal verso), `stazione` (`ProfiloStazione`: binari, frequenza, ruolo, collegamenti), `treno` (`ProfiloTreno`: itinerario, fermate, archi da `andamentoTreno`), `linea` (`Linea`, `aggrega_archi`: raggruppamenti su più treni)
 - `packages/viaggiatreno_mcp/src/viaggiatreno_mcp/`
   - `server.py` — avvio (transport stdio), `main`
   - `tools/` — tool MCP per dominio: `stations`, `trains`, `departures_arrivals`, `routes`, `service`
 - `packages/viaggiatreno_crawler/src/viaggiatreno_crawler/`
-  - `poller.py` — logica scoperta/arricchimento/verifica
+  - `eventi.py` — `Motore`: i lavori `censisci_stazione`, `sonda_stazione`, `verifica_treno` (+ tratte/scan opz.)
+  - `scheduler.py` — coda con scadenze + pool di worker
+  - `rete.py` — trasporto resiliente (retry, pausa sul 403, proxy) + limitatore di richieste al secondo
+  - `poller.py` — funzioni di scoperta/persistenza riusate dal motore
   - `storage.py` — schema e upsert SQLite (`regioni`, `stops`, `treni`, `fermate`, `tratte`, …)
-  - `config.py` — `CrawlerConfig`; `__main__.py` — CLI argparse
-- `data/treni.db` — DB SQLite di output del crawler
+  - `config.py` — `ConfigEventi`; `__main__.py` — CLI argparse (`eventi`, `manutenzione`)
+- `data/eventi.db` — DB SQLite di output del crawler
 - Docs (IT): `INDICE.md`, `VIAGGIATRENO.md`, `TRENORD.md`, `ENTITA.md`, `GLOSSARIO.md`, `COPERTURA_GEOGRAFICA.md`
 
 ## Stack
@@ -47,7 +54,7 @@ uv sync                    # installa workspace + dev deps (editable)
 make lint                  # ruff format --check + ruff check + pyright
 make pytest                # test (= uv run pytest)
 make run                   # avvia il server MCP (= uv run viaggiatreno-mcp)
-uv run viaggiatreno-crawler run --db-path data/treni.db
+make crawler-eventi        # crawler a eventi (anche -tratte, -full; vedi make help)
 make build                 # build di tutti i pacchetti (= uv build)
 ```
 

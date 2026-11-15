@@ -1,6 +1,6 @@
 # README-DB: schema del database del crawler
 
-Il crawler (`viaggiatreno-crawler`) salva tutto in un unico file SQLite (default `data/treni.db`, modalità WAL). Questo documento descrive le tabelle, come si collegano e che aspetto hanno i dati.
+Il crawler (`viaggiatreno-crawler`) salva tutto in un unico file SQLite (default `data/eventi.db`, modalità WAL). Questo documento descrive le tabelle, come si collegano e che aspetto hanno i dati.
 
 **Tratta di riferimento per gli esempi: Lecco → Calolziocorte → Carnate → Monza → Milano Porta Garibaldi (S8).** I valori sono righe reali del DB del 4 novembre 2026: treno `REG 24825` Lecco → Milano Porta Garibaldi, partenza prevista alle 07:06, arrivato alle 08:12.
 
@@ -20,19 +20,21 @@ treni ──< fermate >──────────────┘
                                                                              ^
 tratte_osservazioni ─────── (regione_codice, tratta_ab, tratta_ba) ─────────┘
 
-crawler_stato   (chiave/valore, indipendente)
+crawler_stato        (chiave/valore, indipendente)
+tabelloni_richieste  (registro delle richieste di tabellone, per stop_id)
 ```
 
 | Tabella | Tipo | Cosa contiene | Chi la scrive |
 |---|---|---|---|
 | `regioni` | dimensione | Codici regione ViaggiaTreno | caricamento dimensioni |
-| `stops` | dimensione | Stazioni, con coordinate | caricamento dimensioni (ogni 24h) |
-| `treni` | fatto | Una riga per corsa (treno + giorno) | scoperta, tabelloni, scan, verifica |
+| `stops` | dimensione | Stazioni, con coordinate e stato di capolinea | elencoStazioni (ogni 24h) e tutte le altre API, che censiscono le stazioni nuove |
+| `treni` | fatto | Una riga per corsa (treno + giorno) | censimento e sonda delle stazioni, tratte, scan, verifica |
 | `fermate` | fatto | Le fermate di ogni treno, con orari e binari | verifica (`andamentoTreno`) |
 | `tratte` | dimensione | Segmenti di rete tra due nodi | scoperta |
 | `tratte_osservazioni` | serie storica | Segmento occupato o libero, a ogni scansione | scoperta |
 | `avvistamenti_tratta` | serie storica | Quale treno è stato visto su quale segmento | scoperta |
-| `crawler_stato` | tecnica | Checkpoint per riprendere dopo un riavvio | tutti i cicli |
+| `crawler_stato` | tecnica | Ora dell'ultimo giro dei lavori periodici (tratte, scan) | lavori periodici |
+| `tabelloni_richieste` | tecnica | Una riga per richiesta di partenze/arrivi: ora, stazione, n. treni, primo e ultimo orario (misura la finestra del tabellone) | censimento e sonda |
 
 ---
 
@@ -65,9 +67,11 @@ Stazioni. La chiave e i nomi delle colonne coincidono con `stops.txt` del GTFS T
 | `stop_url` | TEXT | Solo da GTFS, altrimenti NULL |
 | `regione_codice` | INTEGER | FK → `regioni` |
 | `citta` | TEXT | Città come la dà l'API (vedi note) |
-| `fonte` | TEXT | `viaggiatreno`, `gtfs_trenord` o `viaggiatreno+gtfs_trenord` |
+| `fonte` | TEXT | Da dove arriva la stazione; le provenienze si accumulano con `+`. `viaggiatreno` = elencoStazioni, `gtfs_trenord` = stops.txt, `tabellone` = origine/destinazione di una riga di partenze/arrivi, `itinerario` = fermata di `andamentoTreno`, `tratte` = origine/destinazione di un treno trovato per segmento. Es. `tabellone+viaggiatreno` |
 | `ultimo_aggiornamento` | INTEGER | ms |
 | `ultimo_tabellone` | INTEGER | Ultima volta (ms) che il tabellone delle partenze è stato richiesto con successo. NULL se mai |
+| `e_origine`, `e_destinazione` | INTEGER | 1 se la stazione è origine / destinazione di almeno un treno visto (capolinea). Si ricavano da tabelloni e itinerari |
+| `prossima_sonda` | INTEGER | Quando va richiamata la stazione (ms). La coda dei lavori si ricostruisce da qui al riavvio |
 
 ```
 stop_id  stop_name               stop_lat   stop_lon  stop_url  regione_codice  citta           fonte
@@ -78,14 +82,15 @@ S01645   MILANO PORTA GARIBALDI  45.484917  9.187683  NULL      1               
 
 Note:
 - `citta = 'A'` è un segnaposto dell'API (nessuna città), non un dato vero. Succede per Porta Garibaldi.
-- Oggi `fonte` vale sempre `viaggiatreno`: nessun `stops.txt` di Trenord è stato importato.
+- Una stazione scoperta da un tabellone o da un itinerario (`fonte` = `tabellone`/`itinerario`) ha solo codice e nome: `stop_lat`, `stop_lon`, `regione_codice` e `citta` restano NULL finché non compare in `elencoStazioni`, e allora `fonte` diventa es. `tabellone+viaggiatreno`.
+- Nessun `stops.txt` di Trenord è stato importato.
 
 ### Import del GTFS Trenord
 
 ```python
 from viaggiatreno_crawler import storage
 
-conn = storage.connect("data/treni.db")
+conn = storage.connect("data/eventi.db")
 storage.importa_stops_gtfs(conn, "trenord_gtfs/stops.txt")
 ```
 
@@ -114,7 +119,9 @@ Una riga per ogni corsa vista dal crawler.
 | `raw_json` | TEXT | Ultima risposta dell'API, per ricalcoli futuri (vedi note in fondo: tre forme) |
 | `orario_partenza` | INTEGER | Partenza programmata dall'origine, ms. Serve a non verificare un treno molto prima che parta. NULL se ignoto |
 | `ultima_verifica` | INTEGER | Ultima volta (ms) che `andamentoTreno` è stato chiamato per il treno, con qualsiasi esito. Evita di richiamarlo troppo presto. NULL se mai verificato |
-| `chiusura_motivo` | TEXT | Solo per `non_disponibile`: `204` (soglia di risposte vuote) o `giornata_passata` (chiuso in blocco all'avvio). NULL altrimenti e nelle righe precedenti alla colonna |
+| `chiusura_motivo` | TEXT | Solo per `non_disponibile`: `204` (soglia di risposte vuote), `scaduto` (arrivo previsto superato di oltre 6 h senza risultare arrivato) o `giornata_passata` (chiusura in blocco, crawler precedente). NULL altrimenti |
+| `prossima_verifica` | INTEGER | Quando va richiamato `andamentoTreno` (ms). NULL se chiuso o non programmato |
+| `arrivo_previsto` | INTEGER | Ultima fermata non soppressa programmata + ritardo attuale, ms |
 | `route_id`, `trip_id` | TEXT | Riservate, sempre NULL |
 
 Vincolo: `UNIQUE (numero_treno, cod_origine, data_partenza_treno)`.
@@ -169,6 +176,7 @@ S01645   MILANO PORTA GARIBALDI    15   A     08:08              08:12          
 
 Note:
 - `progressivo` ha dei salti (3 e 14 mancano): conta anche le località non commerciali, che qui non compaiono.
+- **Non usare `progressivo` per ordinare le fermate.** In 72 treni su 10.328 è ripetuto o non crescente (tipico: un treno che unisce due tratti, come Merano–Bolzano–Brennero, dove riparte da 1 a Bolzano). Le fermate sono inserite nell'ordine dell'API: ordinare per `fermate.id`.
 - Il binario di Porta Garibaldi è cambiato (17 programmato, 20 effettivo).
 - Il `ritardo` dell'ultima fermata è il ritardo all'arrivo: il crawler lo copia in `treni.ritardo_finale`.
 
@@ -259,6 +267,55 @@ checkpoint_verifica_id            1039536
 
 ---
 
+## Viste riassuntive (per dashboard e wiki)
+
+Il crawler le crea da solo all'avvio (`DROP` + `CREATE`, solo se la loro definizione è cambiata,
+versione in `crawler_stato.viste_versione`); per un DB già esistente: `make viste`
+(`viaggiatreno-crawler viste`), anche a crawler acceso. Non scrivono dati. Sono definite in
+`viste.py` e **usano le stesse regole della libreria** (`viaggiatreno.insights`), perché dashboard e
+tool MCP devono dare la stessa risposta.
+
+| Vista | Una riga per | Cosa contiene |
+|---|---|---|
+| `v_treno` | corsa | giorno locale, categoria, operatore, stato, n. fermate e soppresse, `parziale`, origine e destinazione **effettive** (prima e ultima fermata non soppressa) |
+| `v_fermata` | fermata | la fermata con giorno, treno, `ruolo` (`origina`/`termina`/`passa`/`soppressa`), binario programmato ed effettivo, `binario_cambiato` |
+| `v_fermata_binario` | (fermata, binario) | interna: un binario per riga, programmato (`p`) o effettivo (`e`), sulle sole fermate non soppresse |
+| `v_stops` | stazione | anagrafica, corse, numeri di treno distinti, giorni, **n. binari** (unione di programmati ed effettivi), **n. destinazioni** e origini, quanti treni nascono / finiscono / passano, `capolinea`, `transito` |
+| `v_stops_giorno` | stazione × giorno | corse, nascono/finiscono/passano, destinazioni, binari di quel giorno |
+| `v_stop_binari` | stazione × binario | corse, quante previste e quante reali, quante con binario cambiato, giorni |
+
+```sql
+SELECT stop_name, n_binari FROM v_stops ORDER BY n_binari DESC LIMIT 5;        -- più binari
+SELECT stop_name, n_corse FROM v_stops ORDER BY n_corse DESC LIMIT 5;          -- più treni
+SELECT stop_name, n_destinazioni FROM v_stops ORDER BY n_destinazioni DESC LIMIT 5;
+SELECT giorno, n_corse FROM v_stops_giorno WHERE stop_id = 'S01322' ORDER BY giorno;
+```
+
+Come sono definiti i numeri:
+
+- **Ordine delle fermate**: `fermate.id` (l'ordine dell'API), mai `progressivo`.
+- **Corsa di una stazione**: un treno distinto con una fermata *non soppressa* lì. Una fermata
+  soppressa non è una corsa (è in `n_corse_soppresse`).
+- **Destinazioni di una stazione**: le destinazioni *finali* (ultima fermata non soppressa) dei
+  treni che vi passano, esclusa la stazione stessa; `n_origini` è l'analogo per l'origine.
+- **Capolinea / transito**: almeno un treno vi nasce o vi finisce / vi passa; possono valere
+  entrambi. I treni parzialmente soppressi (hanno fermate soppresse) non contano come capolinea:
+  vanno in `n_incerti`, perché possono nascere o finire lì a causa della soppressione.
+- **Giorno**: la data locale di `data_partenza_treno` (la sua mezzanotte locale + 12 ore, in UTC).
+
+Limiti da conoscere:
+
+- Vedono solo i treni **verificati** (con `fermate`): una corsa solo scoperta dai tabelloni è in
+  `v_treno` ma non conta nelle stazioni.
+- Il primo e l'ultimo giorno dei dati sono di solito **incompleti**: per "treni al giorno" usa
+  `v_stops_giorno` e scarta quei giorni; non sommare giorni di peso diverso.
+- Sono viste: ogni interrogazione ricalcola. Su circa 240.000 fermate `v_stops` impiega circa 1
+  secondo. Se non basta si materializza in una tabella.
+- Non c'è la "deduzione" dei terminali della libreria: qui la destinazione è dichiarata
+  dall'itinerario, non dedotta da un tabellone di arrivi.
+
+---
+
 ## Query di esempio (sulla stessa linea)
 
 Ritardo medio per fermata, sui treni Lecco → Porta Garibaldi arrivati:
@@ -270,7 +327,7 @@ JOIN treni t ON t.id = f.treno_id
 JOIN stops s ON s.stop_id = f.stop_id
 WHERE t.cod_origine = 'S01520' AND t.cod_destinazione = 'S01645' AND t.stato = 'arrivato'
 GROUP BY f.stop_id
-ORDER BY MIN(f.progressivo);
+ORDER BY MIN(f.id);
 ```
 ```
 stop_name               rit_medio  n

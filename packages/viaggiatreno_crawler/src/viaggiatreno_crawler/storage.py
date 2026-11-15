@@ -35,6 +35,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from viaggiatreno.insights import data_di_servizio, tipo_giorno
+
 SCHEMA = """
 PRAGMA journal_mode = WAL;
 
@@ -55,11 +57,20 @@ CREATE TABLE IF NOT EXISTS stops (
     stop_url TEXT,
     regione_codice INTEGER REFERENCES regioni(codice),
     citta TEXT,
+    -- Da dove arriva la stazione (le provenienze si accumulano con '+'):
+    -- 'viaggiatreno' = elencoStazioni; 'gtfs_trenord' = stops.txt; 'tabellone' = origine o
+    -- destinazione di una riga di partenze/arrivi; 'itinerario' = fermata di andamentoTreno;
+    -- 'tratte' = origine/destinazione di un treno trovato per segmento.
     fonte TEXT NOT NULL DEFAULT 'viaggiatreno',
     ultimo_aggiornamento INTEGER,
     -- Ultima volta (ms) che il tabellone delle partenze di questa stazione e' stato
     -- richiesto con successo: evita di richiamarlo troppo presto (es. dopo un riavvio).
-    ultimo_tabellone INTEGER
+    ultimo_tabellone INTEGER,
+    -- Crawler a eventi: quando va sondata la stazione (ms; NULL = non programmata) e
+    -- se risulta capolinea: origine di almeno un treno / destinazione di almeno uno.
+    prossima_sonda INTEGER,
+    e_origine INTEGER NOT NULL DEFAULT 0,
+    e_destinazione INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS treni (
@@ -92,6 +103,15 @@ CREATE TABLE IF NOT EXISTS treni (
     -- esito qualsiasi, anche 204). Non e' `ultimo_aggiornamento`, che cambia anche
     -- quando il treno viene solo rivisto da una scoperta.
     ultima_verifica INTEGER,
+    -- Crawler a eventi: quando va richiamato andamentoTreno (ms; NULL = non programmato)
+    -- e arrivo previsto a capolinea (ultima fermata programmata + ritardo), in ms.
+    prossima_verifica INTEGER,
+    arrivo_previsto INTEGER,
+    -- 'feriale' | 'sabato' | 'festivo' del giorno di servizio (da data_partenza_treno)
+    tipo_giorno TEXT,
+    -- Modalita' "orario": fino a quando (ms) questo record vale per i giorni dello stesso tipo.
+    -- NULL per le corse scoperte in modalita' "statistiche".
+    scade_orario INTEGER,
     UNIQUE (numero_treno, cod_origine, data_partenza_treno)
 );
 
@@ -108,7 +128,13 @@ CREATE TABLE IF NOT EXISTS fermate (
     ritardo INTEGER,
     binario_programmato TEXT,
     binario_effettivo TEXT,
-    actual_fermata_type INTEGER
+    actual_fermata_type INTEGER,
+    -- Orari programmati (ms) di arrivo e di partenza: `orario_programmato` e' uno solo (la
+    -- partenza alla prima fermata, l'arrivo alle altre), quindi senza queste due colonne la
+    -- partenza da una fermata intermedia e la durata di un tratto non si ricavano.
+    -- NULL alla prima (arrivo) e all'ultima (partenza) e per le righe precedenti alle colonne.
+    arrivo_teorico INTEGER,
+    partenza_teorica INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_fermate_stop ON fermate(stop_id);
@@ -170,6 +196,36 @@ CREATE TABLE IF NOT EXISTS crawler_stato (
     chiave TEXT PRIMARY KEY,
     valore TEXT
 );
+
+-- Registro delle richieste di tabellone (partenze/arrivi di una stazione): una
+-- riga per richiesta, anche se fallita. Serve a misurare quanto "in avanti" e
+-- "indietro" arriva la finestra di un tabellone (orario_min/orario_max rispetto
+-- a ts_richiesta) e quanti treni contiene, per decidere quando richiamarlo.
+-- Non influenza cosa chiede il crawler. Cresce poco (una riga per richiesta).
+-- Errori dei lavori del crawler (tabelloni e lavori falliti), per `viaggiatreno-crawler errori`.
+-- Non contiene i blocchi HTTP 403/429 della rete (solo nel log).
+CREATE TABLE IF NOT EXISTS errori (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,         -- ms
+    fonte TEXT NOT NULL,         -- 'tabellone partenze', 'tabellone arrivi', o il tipo di lavoro
+    chiave TEXT,                 -- stazione o id treno
+    messaggio TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_errori_ts ON errori(ts);
+
+CREATE TABLE IF NOT EXISTS tabelloni_richieste (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts_richiesta INTEGER NOT NULL,
+    stop_id TEXT NOT NULL,
+    tipo TEXT NOT NULL,          -- 'partenze' | 'arrivi'
+    esito TEXT NOT NULL,         -- 'ok' | 'errore'
+    n_righe INTEGER,             -- treni nel tabellone; NULL se errore
+    orario_min INTEGER,          -- primo orario (ms) tra le righe, partenza o arrivo secondo `tipo`
+    orario_max INTEGER,          -- ultimo orario (ms)
+    n_senza_orario INTEGER       -- righe senza un orario utilizzabile
+);
+
+CREATE INDEX IF NOT EXISTS idx_tab_richieste_stop ON tabelloni_richieste(stop_id, ts_richiesta);
 """
 
 
@@ -208,8 +264,21 @@ _COLONNE_AGGIUNTE = {
         ("orario_partenza", "INTEGER"),
         ("chiusura_motivo", "TEXT"),
         ("ultima_verifica", "INTEGER"),
+        ("prossima_verifica", "INTEGER"),
+        ("arrivo_previsto", "INTEGER"),
+        ("tipo_giorno", "TEXT"),
+        ("scade_orario", "INTEGER"),
     ],
-    "stops": [("ultimo_tabellone", "INTEGER")],
+    "fermate": [
+        ("arrivo_teorico", "INTEGER"),
+        ("partenza_teorica", "INTEGER"),
+    ],
+    "stops": [
+        ("ultimo_tabellone", "INTEGER"),
+        ("prossima_sonda", "INTEGER"),
+        ("e_origine", "INTEGER NOT NULL DEFAULT 0"),
+        ("e_destinazione", "INTEGER NOT NULL DEFAULT 0"),
+    ],
 }
 
 
@@ -236,6 +305,10 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     _verifica_schema_compatibile(conn)
     _migra_colonne(conn)
     conn.executescript(SCHEMA)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_treni_orario "
+        "ON treni(numero_treno, cod_origine, tipo_giorno, scade_orario)"
+    )
     conn.commit()
     return conn
 
@@ -296,7 +369,9 @@ def upsert_stop(
             stop_url = COALESCE(excluded.stop_url, stops.stop_url),
             regione_codice = COALESCE(excluded.regione_codice, stops.regione_codice),
             citta = COALESCE(excluded.citta, stops.citta),
-            fonte = CASE WHEN stops.fonte != excluded.fonte THEN 'viaggiatreno+gtfs_trenord' ELSE excluded.fonte END,
+            -- `fonte` accumula le provenienze (es. 'tabellone+viaggiatreno'), senza duplicati
+            fonte = CASE WHEN instr('+' || stops.fonte || '+', '+' || excluded.fonte || '+') > 0
+                         THEN stops.fonte ELSE stops.fonte || '+' || excluded.fonte END,
             ultimo_aggiornamento = excluded.ultimo_aggiornamento
         """,
         (
@@ -445,11 +520,13 @@ def upsert_treno(
             numero_treno, cod_origine, data_partenza_treno, categoria,
             cod_destinazione, origine, destinazione, codice_cliente,
             stato, ritardo_corrente, ritardo_finale,
-            primo_avvistamento, ultimo_aggiornamento, raw_json, orario_partenza
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            primo_avvistamento, ultimo_aggiornamento, raw_json, orario_partenza, tipo_giorno
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(numero_treno, cod_origine, data_partenza_treno) DO UPDATE SET
             categoria = excluded.categoria,
-            cod_destinazione = excluded.cod_destinazione,
+            -- come l'orario: il codice noto non si perde se una riscoperta non lo porta
+            -- (i tabelloni delle partenze danno solo il nome della destinazione)
+            cod_destinazione = COALESCE(excluded.cod_destinazione, treni.cod_destinazione),
             origine = excluded.origine,
             destinazione = excluded.destinazione,
             codice_cliente = excluded.codice_cliente,
@@ -491,6 +568,7 @@ def upsert_treno(
             now,
             raw_json,
             orario_partenza,
+            tipo_giorno_di(data_partenza_treno),
         ),
     )
     row = conn.execute(
@@ -546,8 +624,9 @@ def sostituisci_fermate(
         INSERT INTO fermate (
             treno_id, stop_id, progressivo, tipo_fermata,
             orario_programmato, orario_effettivo, ritardo,
-            binario_programmato, binario_effettivo, actual_fermata_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            binario_programmato, binario_effettivo, actual_fermata_type,
+            arrivo_teorico, partenza_teorica
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -561,6 +640,8 @@ def sostituisci_fermate(
                 f.get("binario_programmato"),
                 f.get("binario_effettivo"),
                 f.get("actual_fermata_type"),
+                f.get("arrivo_teorico"),
+                f.get("partenza_teorica"),
             )
             for f in fermate
         ],
@@ -588,7 +669,7 @@ def ripara_arrivi_persi(conn: sqlite3.Connection) -> int:
                 SELECT f.ritardo FROM fermate f
                 WHERE f.treno_id = treni.id AND f.tipo_fermata = 'A'
                   AND f.actual_fermata_type = 1 AND f.orario_effettivo IS NOT NULL
-                ORDER BY f.progressivo DESC LIMIT 1
+                ORDER BY f.id DESC LIMIT 1
             )
         WHERE stato IN ('in_corso', 'non_disponibile')
           AND EXISTS (
@@ -600,38 +681,6 @@ def ripara_arrivi_persi(conn: sqlite3.Connection) -> int:
     )
     conn.commit()
     return cur.rowcount
-
-
-def _filtro_attivi(
-    fino_a_ms: int | None, verificato_prima_di_ms: int | None
-) -> tuple[str, list[int]]:
-    """WHERE comune ai treni da verificare, con i due filtri opzionali."""
-    condizioni = ["stato = 'in_corso'"]
-    params: list[int] = []
-    if fino_a_ms is not None:
-        condizioni.append("(orario_partenza IS NULL OR orario_partenza <= ?)")
-        params.append(fino_a_ms)
-    if verificato_prima_di_ms is not None:
-        condizioni.append("(ultima_verifica IS NULL OR ultima_verifica <= ?)")
-        params.append(verificato_prima_di_ms)
-    return " AND ".join(condizioni), params
-
-
-def treni_attivi(
-    conn: sqlite3.Connection,
-    fino_a_ms: int | None = None,
-    verificato_prima_di_ms: int | None = None,
-) -> list[sqlite3.Row]:
-    """Treni `in_corso` da verificare.
-
-    - `fino_a_ms`: esclude quelli che partono dopo quell'istante (non ha senso
-      chiamare `andamentoTreno` molto prima della partenza). I treni senza
-      `orario_partenza` noto si verificano sempre.
-    - `verificato_prima_di_ms`: esclude quelli controllati dopo quell'istante,
-      cioe' da poco. I treni mai verificati (`ultima_verifica` NULL) restano dentro.
-    """
-    where, params = _filtro_attivi(fino_a_ms, verificato_prima_di_ms)
-    return conn.execute(f"SELECT * FROM treni WHERE {where}", params).fetchall()
 
 
 def segna_verifica(conn: sqlite3.Connection, treno_id: int, ora_ms: int | None = None) -> None:
@@ -650,67 +699,6 @@ def segna_tabellone(conn: sqlite3.Connection, stop_id: str, ora_ms: int | None =
     )
 
 
-def tabelloni_recenti(conn: sqlite3.Connection, dopo_ms: int) -> set[str]:
-    """Stazioni il cui tabellone e' stato richiesto a partire da `dopo_ms` (cioe' da poco)."""
-    rows = conn.execute(
-        "SELECT stop_id FROM stops WHERE ultimo_tabellone IS NOT NULL AND ultimo_tabellone >= ?",
-        (dopo_ms,),
-    ).fetchall()
-    return {str(r["stop_id"]) for r in rows}
-
-
-def chiudi_treni_obsoleti(conn: sqlite3.Connection, mezzanotte_oggi_ms: int) -> int:
-    """Marca 'non_disponibile' i treni ancora 'in_corso' di giornate passate.
-
-    Da chiamare all'avvio: se il crawler viene fermato mentre dei treni sono
-    `in_corso`, al riavvio (magari il giorno dopo) resterebbero attivi e la
-    verifica sprecherebbe chiamate su `andamento_treno` con una
-    `data_partenza_treno` ormai vecchia (che risponde 204) finché non
-    collezionano abbastanza 204 per chiudersi da soli. Questa UPDATE li chiude
-    subito, senza chiamate di rete. Restituisce il numero di treni chiusi.
-    """
-    cur = conn.execute(
-        "UPDATE treni SET stato = 'non_disponibile', chiusura_motivo = 'giornata_passata', "
-        "ultimo_aggiornamento = ? WHERE stato = 'in_corso' AND data_partenza_treno < ?",
-        (int(time.time() * 1000), mezzanotte_oggi_ms),
-    )
-    conn.commit()
-    return cur.rowcount
-
-
-def conta_treni_attivi(
-    conn: sqlite3.Connection,
-    fino_a_ms: int | None = None,
-    verificato_prima_di_ms: int | None = None,
-) -> int:
-    """Numero di treni `in_corso`, con gli stessi filtri di `treni_attivi`."""
-    where, params = _filtro_attivi(fino_a_ms, verificato_prima_di_ms)
-    row = conn.execute(f"SELECT COUNT(*) AS n FROM treni WHERE {where}", params).fetchone()
-    return int(row["n"])
-
-
-def treni_attivi_da(
-    conn: sqlite3.Connection,
-    dopo_id: int,
-    limit: int,
-    fino_a_ms: int | None = None,
-    verificato_prima_di_ms: int | None = None,
-) -> list[sqlite3.Row]:
-    """Treni attivi con id > dopo_id, ordinati per id, al massimo `limit`.
-
-    Usato dalla verifica con cap per giro: scorre gli attivi a finestre
-    (ordinate per id) riprendendo dall'ultimo id controllato, così ogni giro
-    resta sotto un tetto di chiamate e nel tempo copre comunque tutti i treni.
-    Con `dopo_id=0` riparte dall'inizio (per ciclare quando si arriva in fondo).
-    I due filtri hanno lo stesso significato che in `treni_attivi`.
-    """
-    where, params = _filtro_attivi(fino_a_ms, verificato_prima_di_ms)
-    return conn.execute(
-        f"SELECT * FROM treni WHERE {where} AND id > ? ORDER BY id LIMIT ?",
-        [*params, dopo_id, limit],
-    ).fetchall()
-
-
 def numeri_treno_noti(conn: sqlite3.Connection) -> list[int]:
     """Numeri treno distinti già osservati, per guidare lo scan-range.
 
@@ -720,39 +708,6 @@ def numeri_treno_noti(conn: sqlite3.Connection) -> list[int]:
     """
     rows = conn.execute("SELECT DISTINCT numero_treno FROM treni ORDER BY numero_treno").fetchall()
     return [int(r["numero_treno"]) for r in rows]
-
-
-def stazioni_per_origine(conn: sqlite3.Connection, regione_codice: int) -> list[str]:
-    """Tutti gli stop_id della regione, i capolinea per primi.
-
-    Ordina per numero di treni che *nascono* nella stazione (`treni.cod_origine`),
-    poi per fermate osservate, poi per stop_id (ordine stabile). E' la misura
-    giusta per i tabelloni delle partenze: un treno compare nella partenza della
-    sua stazione di origine, quindi le stazioni da cui ne nascono di più sono
-    quelle che fanno scoprire più treni. Le fermate osservate (il criterio
-    precedente) premiavano invece i nodi di transito, da cui nascono pochi treni.
-
-    Include anche le stazioni mai viste come origine né come fermata (in coda),
-    così all'avvio, a DB vuoto, c'e' comunque una lista da cui partire.
-    Con `regione_codice=0` considera tutte le stazioni; altrimenti filtra per
-    regione (includendo quelle senza regione nota, es. importate dal GTFS).
-    """
-    filtro = "" if regione_codice == 0 else "WHERE s.regione_codice = ? OR s.regione_codice IS NULL"
-    params: tuple[int, ...] = () if regione_codice == 0 else (regione_codice,)
-    rows = conn.execute(
-        f"""
-        SELECT s.stop_id
-        FROM stops s
-        LEFT JOIN (SELECT cod_origine AS stop_id, COUNT(*) AS n
-                   FROM treni GROUP BY cod_origine) o ON o.stop_id = s.stop_id
-        LEFT JOIN (SELECT stop_id, COUNT(*) AS n
-                   FROM fermate GROUP BY stop_id) f ON f.stop_id = s.stop_id
-        {filtro}
-        ORDER BY COALESCE(o.n, 0) DESC, COALESCE(f.n, 0) DESC, s.stop_id
-        """,
-        params,
-    ).fetchall()
-    return [str(r["stop_id"]) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -925,7 +880,7 @@ def ricava_orario_partenza(conn: sqlite3.Connection) -> int:
                SELECT f.orario_programmato FROM fermate f
                WHERE f.treno_id = treni.id AND f.tipo_fermata = 'P'
                  AND f.orario_programmato IS NOT NULL
-               ORDER BY f.progressivo LIMIT 1)
+               ORDER BY f.id LIMIT 1)
            WHERE orario_partenza IS NULL"""
     )
     conn.execute(
@@ -941,3 +896,224 @@ def ricava_orario_partenza(conn: sqlite3.Connection) -> int:
         0
     ]
     return int(dopo - prima)
+
+
+def registra_errore(
+    conn: sqlite3.Connection, ts_ms: int, fonte: str, chiave: str | None, exc: BaseException
+) -> None:
+    """Salva un errore (senza commit: lo fa chi scrive). Il messaggio e' tipo + testo, max 500."""
+    messaggio = f"{type(exc).__name__}: {exc}"[:500]
+    conn.execute(
+        "INSERT INTO errori (ts, fonte, chiave, messaggio) VALUES (?, ?, ?, ?)",
+        (ts_ms, fonte, chiave, messaggio),
+    )
+
+
+def ultimi_errori(conn: sqlite3.Connection, n: int) -> list[sqlite3.Row]:
+    """Gli ultimi `n` errori, dal piu' recente."""
+    return conn.execute(
+        "SELECT ts, fonte, chiave, messaggio FROM errori ORDER BY id DESC LIMIT ?", (n,)
+    ).fetchall()
+
+
+def registra_richiesta_tabellone(
+    conn: sqlite3.Connection,
+    *,
+    stop_id: str,
+    tipo: str,
+    esito: str,
+    ts_ms: int,
+    n_righe: int | None = None,
+    orario_min: int | None = None,
+    orario_max: int | None = None,
+    n_senza_orario: int | None = None,
+) -> None:
+    """Aggiunge una riga al registro delle richieste di tabellone (vedi lo schema)."""
+    conn.execute(
+        "INSERT INTO tabelloni_richieste (ts_richiesta, stop_id, tipo, esito, n_righe, "
+        "orario_min, orario_max, n_senza_orario) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (ts_ms, stop_id, tipo, esito, n_righe, orario_min, orario_max, n_senza_orario),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Crawler a eventi: scadenze persistenti e capolinea
+# ---------------------------------------------------------------------------
+
+
+def registra_stop_se_nuovo(
+    conn: sqlite3.Connection, stop_id: str, nome: str | None, fonte: str
+) -> bool:
+    """Inserisce una stazione se manca (solo codice e nome). True se e' nuova.
+
+    Una stazione gia' presente non viene toccata, salvo il nome se era vuoto.
+    """
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO stops (stop_id, stop_name, fonte, ultimo_aggiornamento) "
+        "VALUES (?, ?, ?, ?)",
+        (stop_id, nome, fonte, int(time.time() * 1000)),
+    )
+    if cur.rowcount == 0 and nome:
+        conn.execute(
+            "UPDATE stops SET stop_name = ? WHERE stop_id = ? AND stop_name IS NULL",
+            (nome, stop_id),
+        )
+    return cur.rowcount > 0
+
+
+def segna_capolinea(
+    conn: sqlite3.Connection, stop_id: str, *, origine: bool = False, destinazione: bool = False
+) -> bool:
+    """Marca la stazione come origine e/o destinazione di un treno.
+
+    Restituisce True solo quando la stazione *diventa* capolinea (prima non lo era).
+    """
+    riga = conn.execute(
+        "SELECT e_origine, e_destinazione FROM stops WHERE stop_id = ?", (stop_id,)
+    ).fetchone()
+    if riga is None:
+        return False
+    era = bool(riga["e_origine"] or riga["e_destinazione"])
+    nuova_o = int(bool(riga["e_origine"]) or origine)
+    nuova_d = int(bool(riga["e_destinazione"]) or destinazione)
+    if (nuova_o, nuova_d) != (riga["e_origine"], riga["e_destinazione"]):
+        conn.execute(
+            "UPDATE stops SET e_origine = ?, e_destinazione = ? WHERE stop_id = ?",
+            (nuova_o, nuova_d, stop_id),
+        )
+    return bool(nuova_o or nuova_d) and not era
+
+
+def ricava_destinazione(conn: sqlite3.Connection) -> int:
+    """Valorizza `treni.cod_destinazione` dall'ultima fermata non soppressa (una tantum).
+
+    I tabelloni delle partenze danno solo il nome della destinazione, non il codice, e in passato
+    la verifica non lo aggiornava. Per i treni che hanno gia' le fermate la destinazione effettiva
+    e' l'ultima fermata con `actual_fermata_type != 3` (tiene conto delle soppressioni), in ordine
+    di inserimento: il `progressivo` non e' affidabile. Non tocca i valori gia' presenti.
+    Restituisce quanti treni valorizza.
+    """
+    prima = conn.execute(
+        "SELECT COUNT(*) FROM treni WHERE cod_destinazione IS NOT NULL"
+    ).fetchone()[0]
+    conn.execute(
+        """UPDATE treni SET cod_destinazione = (
+               SELECT f.stop_id FROM fermate f
+               WHERE f.treno_id = treni.id AND COALESCE(f.actual_fermata_type, -1) != 3
+               ORDER BY f.id DESC LIMIT 1)
+           WHERE cod_destinazione IS NULL"""
+    )
+    conn.commit()
+    dopo = conn.execute("SELECT COUNT(*) FROM treni WHERE cod_destinazione IS NOT NULL").fetchone()[
+        0
+    ]
+    return int(dopo - prima)
+
+
+def ricava_capolinea(conn: sqlite3.Connection) -> int:
+    """Segna come capolinea le stazioni che lo risultano dai dati gia' raccolti.
+
+    Origine = `treni.cod_origine`; destinazione = `treni.cod_destinazione` o ultima
+    fermata ('A') di un itinerario. Idempotente. Restituisce quante righe cambia.
+    """
+    n = conn.execute(
+        "UPDATE stops SET e_origine = 1 WHERE e_origine = 0 "
+        "AND stop_id IN (SELECT DISTINCT cod_origine FROM treni)"
+    ).rowcount
+    n += conn.execute(
+        "UPDATE stops SET e_destinazione = 1 WHERE e_destinazione = 0 AND ("
+        "stop_id IN (SELECT DISTINCT cod_destinazione FROM treni WHERE cod_destinazione IS NOT NULL) "
+        "OR stop_id IN (SELECT DISTINCT stop_id FROM fermate WHERE tipo_fermata = 'A'))"
+    ).rowcount
+    return n
+
+
+def imposta_scadenza_stazione(
+    conn: sqlite3.Connection, stop_id: str, quando_ms: int | None, *, solo_se_prima: bool = False
+) -> None:
+    """Scrive `stops.prossima_sonda`. Con `solo_se_prima` non la sposta in avanti."""
+    if solo_se_prima and quando_ms is not None:
+        conn.execute(
+            "UPDATE stops SET prossima_sonda = ? WHERE stop_id = ? "
+            "AND (prossima_sonda IS NULL OR prossima_sonda > ?)",
+            (quando_ms, stop_id, quando_ms),
+        )
+    else:
+        conn.execute("UPDATE stops SET prossima_sonda = ? WHERE stop_id = ?", (quando_ms, stop_id))
+
+
+def tipo_giorno_di(data_partenza_treno: int) -> str:
+    """'feriale' | 'sabato' | 'festivo' del giorno di servizio di un treno."""
+    return tipo_giorno(data_di_servizio(data_partenza_treno)).value
+
+
+def ricava_tipo_giorno(conn: sqlite3.Connection) -> int:
+    """Valorizza `tipo_giorno` nelle corse che non l'hanno (DB precedenti). Restituisce quante."""
+    giorni = conn.execute(
+        "SELECT DISTINCT data_partenza_treno FROM treni WHERE tipo_giorno IS NULL"
+    ).fetchall()
+    n = 0
+    for (data,) in giorni:
+        n += conn.execute(
+            "UPDATE treni SET tipo_giorno = ? WHERE data_partenza_treno = ? AND tipo_giorno IS NULL",
+            (tipo_giorno_di(data), data),
+        ).rowcount
+    return n
+
+
+def imposta_scade_orario(conn: sqlite3.Connection, treno_id: int, scade_ms: int | None) -> None:
+    conn.execute("UPDATE treni SET scade_orario = ? WHERE id = ?", (scade_ms, treno_id))
+
+
+def orario_valido(
+    conn: sqlite3.Connection, numero_treno: int, cod_origine: str, tipo: str, ora_ms: int
+) -> bool:
+    """C'e' gia' un record non scaduto dello stesso treno per lo stesso tipo di giorno?
+
+    Non conta una corsa senza itinerario utile (`non_disponibile`, `scaduto`) o soppressa: la
+    prossima occasione la riprova.
+    """
+    return (
+        conn.execute(
+            "SELECT 1 FROM treni WHERE numero_treno = ? AND cod_origine = ? AND tipo_giorno = ? "
+            "AND scade_orario > ? AND stato NOT IN ('non_disponibile', 'scaduto', 'soppresso') "
+            "LIMIT 1",
+            (numero_treno, cod_origine, tipo, ora_ms),
+        ).fetchone()
+        is not None
+    )
+
+
+def imposta_scadenza_treno(
+    conn: sqlite3.Connection,
+    treno_id: int,
+    quando_ms: int | None,
+    arrivo_previsto: int | None = None,
+) -> None:
+    """Scrive `treni.prossima_verifica` (e, se dato, `arrivo_previsto`)."""
+    if arrivo_previsto is None:
+        conn.execute("UPDATE treni SET prossima_verifica = ? WHERE id = ?", (quando_ms, treno_id))
+    else:
+        conn.execute(
+            "UPDATE treni SET prossima_verifica = ?, arrivo_previsto = ? WHERE id = ?",
+            (quando_ms, arrivo_previsto, treno_id),
+        )
+
+
+def chiudi_scaduti(conn: sqlite3.Connection, ora_ms: int, oltre_ms: int) -> int:
+    """Chiude i treni 'in_corso' il cui arrivo previsto e' passato da piu' di `oltre_ms`.
+
+    Se l'arrivo non e' noto si ripiega sull'orario di partenza + 24 h o, in mancanza,
+    sulla fine della giornata del treno: un treno notturno partito ieri sera non viene
+    toccato (a differenza di `chiudi_treni_obsoleti`, che guarda solo la data).
+    """
+    cur = conn.execute(
+        "UPDATE treni SET stato = 'non_disponibile', chiusura_motivo = 'scaduto', "
+        "prossima_verifica = NULL, ultimo_aggiornamento = ? "
+        "WHERE stato = 'in_corso' AND "
+        "COALESCE(arrivo_previsto, orario_partenza + 86400000, data_partenza_treno + 86400000) "
+        "+ ? < ?",
+        (ora_ms, oltre_ms, ora_ms),
+    )
+    conn.commit()
+    return cur.rowcount

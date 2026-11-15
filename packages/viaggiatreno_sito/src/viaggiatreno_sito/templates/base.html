@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b6b3a">
+<title>{% block titolo %}Italian trains – Stations and lines{% endblock %}</title>
+<link rel="stylesheet" href="{{ radice }}stile.css">
+</head>
+<body>
+<header class="sito"><div class="wrap"><a href="{{ radice }}index.html">🚆 Italian trains</a><a class="nav" href="{{ radice }}mappa.html">Map</a></div></header>
+<main>
+{% block contenuto %}{% endblock %}
+</main>
+<footer>
+Collected data may be incomplete or wrong.
+This is not an official service.
+</footer>
+</body>
+</html>

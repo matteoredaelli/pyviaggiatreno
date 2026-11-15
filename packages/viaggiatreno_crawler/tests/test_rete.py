@@ -283,7 +283,7 @@ def test_il_proxy_non_rompe_retry_e_pausa_sul_403(senza_proxy):
 
 
 def test_flag_cli_proxy():
-    from viaggiatreno_crawler.__main__ import parse_args
+    from viaggiatreno_crawler.__main__ import parse_args_eventi
 
-    assert parse_args(["run"]).rete_proxy is None
-    assert parse_args(["run", "--proxy", "http://p:3128"]).rete_proxy == "http://p:3128"
+    assert parse_args_eventi(["eventi"]).rete_proxy is None
+    assert parse_args_eventi(["eventi", "--proxy", "http://p:3128"]).rete_proxy == "http://p:3128"

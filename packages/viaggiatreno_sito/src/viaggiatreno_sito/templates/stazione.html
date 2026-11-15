@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block titolo %}{{ s.nome or s.codice }} – Italian trains{% endblock %}
+{% block contenuto %}
+<section class="hero">
+<h1>{{ s.nome or s.codice }}</h1>
+<p class="sub">
+  {% if s.citta and s.citta != "A" %}{{ s.citta }} · {% endif %}{{ s.regione_nome or "Unknown region" }} · code {{ s.codice }}
+  {% if s.lat is not none and s.lon is not none %}
+  · <a href="https://www.openstreetmap.org/?mlat={{ s.lat }}&amp;mlon={{ s.lon }}#map=15/{{ s.lat }}/{{ s.lon }}">map</a>
+  {% endif %}
+</p>
+<p>
+  {% if s.capolinea %}<span class="badge">terminus</span>{% endif %}
+  {% if s.transito %}<span class="badge">through station</span>{% endif %}
+  {% if not s.ha_dati %}<span class="badge neutro">no trains observed</span>{% endif %}
+</p>
+</section>
+
+{% if not s.ha_dati %}
+<p class="avviso">We have not observed any train at this station yet: it may be
+poorly served, or not yet reached by the data collection.</p>
+{% else %}
+
+<div class="griglia">
+  <div class="tot"><b>{{ s.n_corse }}</b><span>observed trips</span></div>
+  <div class="inizia"><b>{{ s.n_nascono }}</b><span>start here</span></div>
+  <div class="finisce"><b>{{ s.n_finiscono }}</b><span>end here</span></div>
+  <div class="passa"><b>{{ s.n_passano }}</b><span>pass through</span></div>
+  {% if s.n_incerti %}<div class="incerto"><b>{{ s.n_incerti }}</b><span>partially cancelled (uncertain start or end)</span></div>{% endif %}
+</div>
+
+<h2>Trains per day</h2>
+{% for f in s.frequenze %}
+<h3>{{ etichetta_giorno(f.tipo_giorno) }}</h3>
+{% if f.corse_per_giorno is none %}
+<p class="sub">No data for this day type ({{ "not yet " if giorni.completi else "not " }}observed).</p>
+{% else %}
+<p>{{ f.corse_per_giorno }} trips per day on average <span class="sub">({{ f.n_giorni }} {{ "day" if f.n_giorni == 1 else "days" }} observed)</span></p>
+{% set massimo = f.per_ora|max %}
+<div class="ore" role="img" aria-label="Trains per hour of the day, local time">
+{% for v in f.per_ora %}<i{% if massimo and v == massimo %} class="picco"{% endif %} style="height:{{ (100 * v / massimo)|round|int if massimo else 0 }}%" title="{{ '%02d'|format(loop.index0) }}:00 – {{ v }} trains"></i>{% endfor %}
+</div>
+<div class="ore-label">{% for h in range(0, 25, 3) %}<span>{{ h }}</span>{% endfor %}</div>
+{% endif %}
+{% endfor %}
+{% if giorni.parziali %}
+<p class="avviso">Days with incomplete data, excluded from the averages: {{ giorni.parziali|join(", ") }}.</p>
+{% endif %}
+
+{% if s.binari %}
+<h2>Platforms</h2>
+<p class="chips">{% for b in s.binari %}<span class="chip binario">{{ b }}</span>{% endfor %}</p>
+{% endif %}
+
+{% if s.collegamenti %}
+<h2>Connections</h2>
+<p class="sub">Where trains starting here go, and where trains ending here come from.</p>
+<p class="chips">{% for c in s.collegamenti %}<span class="chip">{{ c }}</span>{% endfor %}</p>
+{% endif %}
+
+{% if s.linee %}
+<h2>Lines ({{ s.linee|length }})</h2>
+<p class="sub">Routes serving the station, with the same two termini in both directions.</p>
+<div class="tab"><table>
+<thead><tr><th>Line</th><th>Here</th><th class="n">Trains</th><th class="n">Stops</th></tr></thead>
+<tbody>
+{% for l in s.linee %}
+<tr><td>{{ l.nome }}</td><td>{{ l.ruolo|ruolo }}</td><td class="n">{{ l.n_treni }}</td><td class="n">{{ l.n_fermate }}</td></tr>
+{% endfor %}
+</tbody>
+</table></div>
+{% endif %}
+
+{% if s.vicini %}
+<h2>Nearby stations</h2>
+<p class="sub">Previous and next stops of trains, with the median scheduled travel time.</p>
+<div class="tab"><table>
+<thead><tr><th>Station</th><th class="n">Trains</th><th class="n">Duration</th><th class="n">Distance</th></tr></thead>
+<tbody>
+{% for v in s.vicini %}
+<tr>
+  <td>{% if v.codice in esistono %}<a href="{{ v.codice }}.html">{{ v.nome or v.codice }}</a>{% else %}{{ v.nome or v.codice }}{% endif %}</td>
+  <td class="n">{{ v.n_treni }}</td><td class="n">{{ v.durata_minuti|minuti }}</td><td class="n">{{ v.distanza_km|km }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table></div>
+{% endif %}
+
+{% if s.tratte %}
+<h2>Track sections</h2>
+<p class="sub">Network segments that have this station as an endpoint.</p>
+<ul>
+{% for t in s.tratte %}
+<li>towards {% if t.altro_nodo in esistono %}<a href="{{ t.altro_nodo }}.html">{{ t.altro_nome or t.altro_nodo }}</a>{% else %}{{ t.altro_nome or t.altro_nodo }}{% endif %}
+  <span class="sub">(section {{ t.tratta_ab }}/{{ t.tratta_ba }}, region {{ t.regione_codice }})</span></li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% endif %}
+{% endblock %}

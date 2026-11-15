@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block titolo %}Italian trains – Stations and lines{% endblock %}
+{% block contenuto %}
+<section class="hero">
+<h1>Italian train stations</h1>
+<p class="sub">{{ n_stazioni }} stations ({{ n_con_dati }} with observed trains) · {{ n_linee }} lines</p>
+<input id="filtro" type="search" placeholder="🔍 Search a station…" autocomplete="off">
+</section>
+{% for nome, lista in regioni %}
+<section class="regione">
+<h2>{{ nome }} <small>({{ lista|length }})</small></h2>
+<ul class="piana">
+{% for s in lista %}
+<li data-nome="{{ (s.nome or s.codice)|lower }}"><a href="stazioni/{{ s.codice }}.html">{{ s.nome or s.codice }}</a></li>
+{% endfor %}
+</ul>
+</section>
+{% endfor %}
+<script>
+const campo = document.getElementById("filtro");
+campo.addEventListener("input", () => {
+  const q = campo.value.trim().toLowerCase();
+  document.querySelectorAll("li[data-nome]").forEach(li => {
+    li.hidden = q !== "" && !li.dataset.nome.includes(q);
+  });
+  document.querySelectorAll("section.regione").forEach(sez => {
+    sez.hidden = q !== "" && !sez.querySelector("li:not([hidden])");
+  });
+});
+</script>
+{% endblock %}

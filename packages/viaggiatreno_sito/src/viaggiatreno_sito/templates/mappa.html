@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block titolo %}Map – Italian trains{% endblock %}
+{% block contenuto %}
+<section class="hero">
+<h1>Map of Italian trains</h1>
+<p class="sub">{{ n_stazioni }} stations and the links between adjacent stations. Click a station to open its page.</p>
+</section>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<div id="mappa"><noscript>The map requires JavaScript.</noscript></div>
+<p class="legenda">● station with observed trains · <span style="opacity:.5">●</span> no data · map © Esri, OpenStreetMap contributors</p>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const mappa = L.map("mappa", {preferCanvas: true}).setView([42.5, 12.5], 6);
+const scura = window.matchMedia("(prefers-color-scheme: dark)").matches;
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_" + (scura ? "Dark" : "Light") + "_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 16,
+  attribution: "Tiles © Esri — Esri, HERE, Garmin, OpenStreetMap contributors"
+}).addTo(mappa);
+const d = {{ dati|tojson }};
+{
+  const verde = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0b6b3a";
+  const linee = d.t.map(([a, b]) => [[d.s[a][2], d.s[a][3]], [d.s[b][2], d.s[b][3]]]);
+  L.polyline(linee, {color: verde, weight: 2, opacity: .6}).addTo(mappa);
+  for (const [cod, nome, lat, lon, dati] of d.s) {
+    const m = L.circleMarker([lat, lon], {
+      radius: dati ? 4 : 3, color: verde, weight: 1, fillColor: verde, fillOpacity: dati ? .9 : .3
+    }).addTo(mappa);
+    m.bindTooltip(nome);
+    m.on("click", () => { location.href = "stazioni/" + cod + ".html"; });
+  }
+}
+</script>
+{% endblock %}

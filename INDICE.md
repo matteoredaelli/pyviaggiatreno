@@ -208,13 +208,13 @@ Questo repository contiene documentazione **completa e integrata** su:
 ├── pyproject.toml               (Workspace uv, 3 pacchetti)
 ├── probe_viaggiatreno.py        (Script probe dati live - opzionale)
 ├── data/
-│   └── treni.db                 (DB SQLite prodotto dal crawler)
+│   └── eventi.db                (DB SQLite prodotto dal crawler a eventi)
 ├── samples/                     (Risposte API di esempio)
 ├── tests/                       (Test del workspace)
 └── packages/
-    ├── viaggiatreno/            (Libreria client HTTP async - core)
+    ├── viaggiatreno/            (Libreria client HTTP async - core; `insights/`: analisi di stazioni)
     ├── viaggiatreno_mcp/        (Server MCP)
-    └── viaggiatreno_crawler/    (Poller → SQLite)
+    └── viaggiatreno_crawler/    (Crawler a eventi → SQLite)
 ```
 
 ---

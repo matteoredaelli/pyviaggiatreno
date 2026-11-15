@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.32", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "viaggiatreno-sito"
+dynamic = ["version"]
+description = "Generatore di un sito statico con stazioni e linee, dai dati del crawler ViaggiaTreno"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+authors = [
+    { name = "Matteo Redaelli", email = "matteo.redaelli@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "viaggiatreno>=0.1.0",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pyright",
+    "pytest>=9.1.1",
+    "viaggiatreno-crawler",  # solo per costruire i DB di prova
+]
+
+[project.scripts]
+viaggiatreno-sito = "viaggiatreno_sito.__main__:main"
+viaggiatreno-sito-hugo = "viaggiatreno_sito.hugo_main:main"
+
+[project.urls]
+Homepage = "https://github.com/matteoredaelli/pyviaggiatreno"
+Repository = "https://github.com/matteoredaelli/pyviaggiatreno.git"
+Issues = "https://github.com/matteoredaelli/pyviaggiatreno/issues"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../.." }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/viaggiatreno_sito/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/viaggiatreno_sito"]

@@ -1,0 +1,197 @@
+{
+ "numeroTreno": 17154,
+ "categoria": "REG",
+ "tipoTreno": "PP",
+ "fermate": [
+  {
+   "id": "S02216",
+   "stazione": "MERANO",
+   "progressivo": 1,
+   "tipoFermata": "",
+   "programmata": 1794392160000,
+   "arrivo_teorico": 1794392160000,
+   "partenza_teorica": 1794392160000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02217",
+   "stazione": "MERANO-MAIA BASSA",
+   "progressivo": 2,
+   "tipoFermata": "",
+   "programmata": 1794392370000,
+   "arrivo_teorico": 1794392370000,
+   "partenza_teorica": 1794392370000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02219",
+   "stazione": "LANA-POSTAL",
+   "progressivo": 3,
+   "tipoFermata": "",
+   "programmata": 1794392730000,
+   "arrivo_teorico": 1794392730000,
+   "partenza_teorica": 1794392730000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02218",
+   "stazione": "GARGAZZONE",
+   "progressivo": 4,
+   "tipoFermata": "",
+   "programmata": 1794392970000,
+   "arrivo_teorico": 1794392970000,
+   "partenza_teorica": 1794392970000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02222",
+   "stazione": "VILPIANO-NALLES",
+   "progressivo": 5,
+   "tipoFermata": "",
+   "programmata": 1794393210000,
+   "arrivo_teorico": 1794393210000,
+   "partenza_teorica": 1794393210000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02223",
+   "stazione": "TERLANO-ANDRIANO",
+   "progressivo": 6,
+   "tipoFermata": "",
+   "programmata": 1794393510000,
+   "arrivo_teorico": 1794393510000,
+   "partenza_teorica": 1794393510000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02224",
+   "stazione": "SETTEQUERCE",
+   "progressivo": 7,
+   "tipoFermata": "",
+   "programmata": 1794393660000,
+   "arrivo_teorico": 1794393660000,
+   "partenza_teorica": 1794393660000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02225",
+   "stazione": "PONTE D'ADIGE",
+   "progressivo": 8,
+   "tipoFermata": "",
+   "programmata": 1794393930000,
+   "arrivo_teorico": 1794393930000,
+   "partenza_teorica": 1794393930000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02059",
+   "stazione": "BOLZANO CASANOVA",
+   "progressivo": 9,
+   "tipoFermata": "",
+   "programmata": 1794394110000,
+   "arrivo_teorico": 1794394110000,
+   "partenza_teorica": 1794394110000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02226",
+   "stazione": "BOLZANO SUD",
+   "progressivo": 10,
+   "tipoFermata": "",
+   "programmata": 1794394290000,
+   "arrivo_teorico": 1794394290000,
+   "partenza_teorica": 1794394290000,
+   "actualFermataType": 3
+  },
+  {
+   "id": "S02026",
+   "stazione": "BOLZANO",
+   "progressivo": 1,
+   "tipoFermata": "P",
+   "programmata": 1794394920000,
+   "arrivo_teorico": 1794394920000,
+   "partenza_teorica": 1794394920000,
+   "actualFermataType": 1
+  },
+  {
+   "id": "S02020",
+   "stazione": "PONTE GARDENA-LAION",
+   "progressivo": 3,
+   "tipoFermata": "F",
+   "programmata": 1794395820000,
+   "arrivo_teorico": 1794395820000,
+   "partenza_teorica": 1794395820000,
+   "actualFermataType": 1
+  },
+  {
+   "id": "S02017",
+   "stazione": "CHIUSA",
+   "progressivo": 4,
+   "tipoFermata": "F",
+   "programmata": 1794396240000,
+   "arrivo_teorico": 1794396240000,
+   "partenza_teorica": 1794396240000,
+   "actualFermataType": 1
+  },
+  {
+   "id": "S02014",
+   "stazione": "BRESSANONE",
+   "progressivo": 5,
+   "tipoFermata": "F",
+   "programmata": 1794396720000,
+   "arrivo_teorico": 1794396720000,
+   "partenza_teorica": 1794396720000,
+   "actualFermataType": 1
+  },
+  {
+   "id": "S02011",
+   "stazione": "FORTEZZA",
+   "progressivo": 6,
+   "tipoFermata": "F",
+   "programmata": 1794397440000,
+   "arrivo_teorico": 1794397440000,
+   "partenza_teorica": 1794397440000,
+   "actualFermataType": 1
+  },
+  {
+   "id": "S02007",
+   "stazione": "CAMPO DI TRENS",
+   "progressivo": 8,
+   "tipoFermata": "F",
+   "programmata": 1794398190000,
+   "arrivo_teorico": 1794398190000,
+   "partenza_teorica": 1794398190000,
+   "actualFermataType": 1
+  },
+  {
+   "id": "S02006",
+   "stazione": "VIPITENO-VAL DI VIZZE",
+   "progressivo": 9,
+   "tipoFermata": "F",
+   "programmata": 1794398520000,
+   "arrivo_teorico": 1794398520000,
+   "partenza_teorica": 1794398520000,
+   "actualFermataType": 1
+  },
+  {
+   "id": "S02005",
+   "stazione": "COLLE ISARCO",
+   "progressivo": 10,
+   "tipoFermata": "F",
+   "programmata": 1794398910000,
+   "arrivo_teorico": 1794398910000,
+   "partenza_teorica": 1794398910000,
+   "actualFermataType": 1
+  },
+  {
+   "id": "S02001",
+   "stazione": "BRENNERO",
+   "progressivo": 13,
+   "tipoFermata": "A",
+   "programmata": 1794399720000,
+   "arrivo_teorico": 1794399720000,
+   "partenza_teorica": 1794399720000,
+   "actualFermataType": 1
+  }
+ ]
+}

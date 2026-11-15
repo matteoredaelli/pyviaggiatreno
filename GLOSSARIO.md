@@ -20,6 +20,26 @@
 | **Tratta / Segmento** | Singolo arco fra 2 stazioni (nodoA → nodoB) | Segmento Milano-Monza | elencoTratte API |
 | **Tratto / Percorso** | Sequenza di stazioni per una corsa | Intero percorso R23 da Domodossola a Milano | Stop_times.txt |
 
+#### Termini della libreria `viaggiatreno.insights`
+
+Termini usati dalle funzioni di analisi di una stazione (vedi `packages/viaggiatreno/README.md`).
+"Linea" nel senso comune non è ancora modellata: raggrupperebbe più itinerari.
+
+| Termine | Definizione | Esempio | Fonte |
+|---------|-----------|---------|-------|
+| **Corsa** (`Corsa`) | Un treno visto sul tabellone di una stazione, come partenza o come arrivo | REG 24865 in partenza da Lecco | `partenze`/`arrivi` |
+| **Collegamento** | Origine → destinazione di un *verso*, senza fermate intermedie; A→B e B→A sono distinti | Lecco → Milano P.G. | tabelloni |
+| **Itinerario** | Sequenza ordinata dei codici delle fermate di un treno, soppresse comprese; uguale nei due versi (forma canonica = la minore tra la sequenza e la sua inversa) | `S01520>S01524>…>S01645` | `andamentoTreno` |
+| **Linea** (`Linea`) | I treni con gli stessi due estremi, in qualunque verso, con le varianti del loro itinerario (completo, salta fermate, alternativo). È un raggruppamento calcolato, non una linea commerciale | Lecco – Milano P.G. (76 treni, un itinerario) | `andamentoTreno` |
+| **Arco** | Due fermate consecutive di un treno e il tratto tra loro, con durata programmata ed effettiva e ritardo accumulato. Non è una *tratta* delle API: i nodi non passeggeri non compaiono tra le fermate | Lecco → Lecco Maggianico, 4 min | `andamentoTreno` |
+| **Fermata (del treno)** (`FermataTreno`) | Una fermata dell'itinerario di un treno, con orari teorici e reali di arrivo e partenza, ritardi, binari e stato (effettuata, in attesa, soppressa) | | `andamentoTreno` |
+| **Collegamento programmato / effettivo** | Origine → ultima fermata della lista / origine → destinazione dichiarata dall'API. Differiscono per un treno parzialmente soppresso | Lecco → Milano P.G. / Lecco → Carnate | `andamentoTreno` |
+| **Verso** | Se un treno percorre l'itinerario nell'ordine canonico (`diretto`) o al contrario (`inverso`) | | |
+| **Capolinea** (stazione) | Almeno un treno vi nasce o vi finisce, senza soglie e senza contare i treni parzialmente soppressi | Lecco, Roma Termini | tabelloni |
+| **Transito** (stazione) | Almeno un treno vi passa (arriva e riparte con origine e destinazione altrove). Una stazione può essere capolinea *e* di transito | Roma Termini: capolinea dei regionali di Fiumicino, transito delle Frecce Torino–Napoli | tabelloni |
+| **Frequenza effettiva / teorica** | Cadenza dei soli treni che circolano / cadenza programmata, con i treni cancellati inclusi | Olgiate, binario 1: effettiva ogni 45 min, teorica ogni 30 | tabelloni |
+| **Terminale dedotto** | Treno visto solo negli arrivi (che non riportano la destinazione) e che non riparte: stima, non dato | | |
+
 ### Treno / Corsa / Servizio
 
 | Termine | Definizione | Esempio | Fonte |
@@ -35,6 +55,7 @@
 | Termine | Definizione | Esempio | Fonte |
 |---------|-----------|---------|-------|
 | **Binario programmato** | Piattaforma indicata in orario | Binario 9 Milano Centrale | stop_times.txt, API |
+| **Binario programmato / reale** (`Corsa.binari`) | Binario previsto dall'orario / binario effettivo assegnato. Il numero di binari di una stazione è l'unione dei due; la relazione con i collegamenti è in due liste separate | Programmato 1, effettivo 4 → compare sul 1 (programmati) e sul 4 (reali) | `insights` |
 | **Binario effettivo** | Piattaforma reale dove il treno staziona | Binario 11 (comunicato al tabellone) | API andamentoTreno |
 | **Cambio binario** | Il treno non è al binario programmato | Ritardo → cambio binario | binarioEffettivo* API |
 
