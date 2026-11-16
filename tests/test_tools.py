@@ -101,3 +101,13 @@ async def test_tools_service(mock_server: FastMCP):
 
     lingua = await mock_server.call_tool("dizionario_lingua", {"id_lingua": "it"})
     assert not lingua.is_error
+
+
+@pytest.mark.asyncio
+async def test_tools_insights(mock_server: FastMCP):
+    stazione = await mock_server.call_tool("profilo_stazione", {"codice_stazione": "S01700"})
+    assert not stazione.is_error
+    assert stazione.structured_content and stazione.structured_content["codice"] == "S01700"
+
+    treno = await mock_server.call_tool("profilo_treno", {"numero_treno": 9611})
+    assert not treno.is_error

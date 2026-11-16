@@ -19,7 +19,7 @@ def create_server(client: ViaggiaTrenoClient | None = None) -> FastMCP:
             "Server MCP per l'interrogazione in tempo reale della rete ferroviaria italiana "
             "tramite le API non ufficiali di ViaggiaTreno. Permette di cercare stazioni, consultare "
             "tabelloni partenze e arrivi in tempo reale, monitorare l'andamento e i ritardi dei treni, "
-            "controllare lo stato delle tratte e leggere le notizie di infomobilità."
+            "controllare lo stato delle tratte e leggere le notizie di infomobilità. I tool profilo_stazione e profilo_treno restituiscono analisi già elaborate (ruolo, frequenza, binari, collegamenti, itinerario, archi)."
         ),
     )
     api_client = client or ViaggiaTrenoClient()

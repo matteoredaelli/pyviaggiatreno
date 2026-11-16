@@ -10,6 +10,16 @@ conoscere i dettagli delle API sottostanti. Permette ad assistenti come Claude
 di cercare stazioni, consultare tabelloni partenze/arrivi, monitorare ritardi e
 andamento dei treni, controllare le tratte e leggere le notizie di infomobilità.
 
+## Tool di analisi
+
+Oltre agli endpoint grezzi, il server espone due analisi della libreria
+(`viaggiatreno.insights`):
+
+- `profilo_stazione`: ruolo (capolinea/transito), frequenza, binari e collegamenti di una
+  stazione, dai tabelloni di partenze e arrivi;
+- `profilo_treno`: itinerario, fermate, archi (tempi di percorrenza, ritardo accumulato) e
+  anomalie di un treno, da `andamentoTreno`.
+
 ## Installazione
 
 ```bash
