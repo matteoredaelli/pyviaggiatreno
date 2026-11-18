@@ -1,9 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.matteoredaelli/viaggiatreno-mcp",
-  "title": "ViaggiaTreno",
-  "description": "Italian railways in real time: stations, departures, delays, train status and routes.",
-  "repository": { "url": "https://github.com/matteoredaelli/pyviaggiatreno", "source": "github" },
+  "name": "io.github.matteoredaelli/italy-trains-viaggiatreno-mcp",
+  "title": "Italy Trains (ViaggiaTreno)",
+  "description": "Italian railways (Trenitalia, ViaggiaTreno): live departures, delays, train status, routes.",
+  "repository": {
+    "url": "https://github.com/matteoredaelli/pyviaggiatreno",
+    "source": "github"
+  },
   "version": "0.4.1",
   "packages": [
     {
@@ -11,7 +14,9 @@
       "identifier": "viaggiatreno-mcp",
       "version": "0.4.1",
       "runtimeHint": "uvx",
-      "transport": { "type": "stdio" }
+      "transport": {
+        "type": "stdio"
+      }
     }
   ]
 }
