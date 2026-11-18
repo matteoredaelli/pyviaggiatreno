@@ -93,7 +93,7 @@ poorly served, or not yet reached by the data collection.</p>
 <ul>
 {% for t in s.tratte %}
 <li>towards {% if t.altro_nodo in esistono %}<a href="{{ t.altro_nodo }}.html">{{ t.altro_nome or t.altro_nodo }}</a>{% else %}{{ t.altro_nome or t.altro_nodo }}{% endif %}
-  <span class="sub">(section {{ t.tratta_ab }}/{{ t.tratta_ba }}, region {{ t.regione_codice }})</span></li>
+  <span class="sub">(section {{ t.tratta_ab }}/{{ t.tratta_ba }}, {{ t.regione_nome or "region " ~ t.regione_codice }})</span></li>
 {% endfor %}
 </ul>
 {% endif %}

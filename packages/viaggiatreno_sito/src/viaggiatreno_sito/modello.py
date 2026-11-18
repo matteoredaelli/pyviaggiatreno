@@ -84,6 +84,7 @@ class Tratta:
     tratta_ba: int
     altro_nodo: str
     altro_nome: str | None
+    regione_nome: str | None = None
 
 
 @dataclass
@@ -116,7 +117,7 @@ class Stazione:
     binari: list[str]  # unione di programmati ed effettivi, ordine naturale
     destinazioni: list[str]  # nomi, dei treni che vi nascono
     origini: list[str]  # nomi, dei treni che vi finiscono
-    collegamenti: list[str]  # unione di destinazioni e origini, per frequenza complessiva
+    collegamenti: list[str]  # unione di destinazioni e origini, in ordine alfabetico
     frequenze: list[Frequenza]
     linee: list[LineaDellaStazione]
     vicini: list[Vicino]
@@ -285,6 +286,12 @@ def costruisci_modello(
             Vicino(x, a.nome_a, a.n_treni, a.durata_programmata_mediana, a.distanza_km)
         )
 
+    regioni = (
+        {r["codice"]: r["nome"] for r in conn.execute("SELECT * FROM regioni")}
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='regioni'").fetchone()
+        else {}
+    )
+
     tratte_di: dict[str, list[Tratta]] = defaultdict(list)
     nomi = {
         r["stop_id"]: r["stop_name"] for r in conn.execute("SELECT stop_id, stop_name FROM stops")
@@ -294,15 +301,14 @@ def costruisci_modello(
             for mio, altro in ((r["nodo_a"], r["nodo_b"]), (r["nodo_b"], r["nodo_a"])):
                 tratte_di[mio].append(
                     Tratta(
-                        r["regione_codice"], r["tratta_ab"], r["tratta_ba"], altro, nomi.get(altro)
+                        r["regione_codice"],
+                        r["tratta_ab"],
+                        r["tratta_ba"],
+                        altro,
+                        nomi.get(altro),
+                        regioni.get(r["regione_codice"]),
                     )
                 )
-
-    regioni = (
-        {r["codice"]: r["nome"] for r in conn.execute("SELECT * FROM regioni")}
-        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='regioni'").fetchone()
-        else {}
-    )
 
     righe = conn.execute("SELECT * FROM stops").fetchall()
     regione_di = regioni_geografiche(
@@ -342,7 +348,7 @@ def costruisci_modello(
             binari=sorted(binari.get(cod, ()), key=_ordine_naturale),
             destinazioni=[n for n, _ in dest[cod].most_common()],
             origini=[n for n, _ in orig[cod].most_common()],
-            collegamenti=[n for n, _ in (dest[cod] + orig[cod]).most_common()],
+            collegamenti=sorted(set(dest[cod]) | set(orig[cod])),
             frequenze=frequenze,
             linee=[
                 LineaDellaStazione(
@@ -354,10 +360,15 @@ def costruisci_modello(
                     ruolo=_ruolo_in_linea(linea, cod),
                     n_fermate=linea.completa.itinerario.n_fermate,
                 )
-                for linea, n in sorted(linee_di.get(cod, []), key=lambda x: (-x[1], x[0].chiave))
+                for linea, n in sorted(
+                    linee_di.get(cod, []), key=lambda x: (x[0].nome, x[0].chiave)
+                )
             ],
-            vicini=sorted(vicini_di.get(cod, []), key=lambda v: (-v.n_treni, v.codice)),
-            tratte=tratte_di.get(cod, []),
+            vicini=sorted(vicini_di.get(cod, []), key=lambda v: ((v.nome or v.codice), v.codice)),
+            tratte=sorted(
+                tratte_di.get(cod, []),
+                key=lambda t: ((t.altro_nome or t.altro_nodo), t.tratta_ab, t.tratta_ba),
+            ),
         )
     return Modello(stazioni, giorni, len(linee), len(profili))
 

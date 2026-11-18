@@ -158,7 +158,7 @@ def _corpo(s: Stazione, modello: Modello, sezione: str, esistono: set[str]) -> s
     if s.tratte:
         voci = "\n".join(
             f"- towards {link(t.altro_nodo, t.altro_nome)} "
-            f"(section {t.tratta_ab}/{t.tratta_ba}, region {t.regione_codice})"
+            f"(section {t.tratta_ab}/{t.tratta_ba}, {t.regione_nome or f'region {t.regione_codice}'})"
             for t in s.tratte
         )
         out.append("## Track sections\n\n" + voci)
