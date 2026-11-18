@@ -1,5 +1,7 @@
 # viaggiatreno-mcp
 
+<!-- mcp-name: io.github.matteoredaelli/viaggiatreno-mcp -->
+
 Server [MCP](https://modelcontextprotocol.io) (Model Context Protocol) per
 interrogare in tempo reale la rete ferroviaria italiana tramite le API di
 ViaggiaTreno.
